@@ -1,0 +1,231 @@
+'use strict';
+
+const express = require('express');
+const CanvasClient = require('../canvas');
+
+const router = express.Router();
+
+function getClient(req) {
+  return req.app.locals.canvas;
+}
+
+// GET /api/course - Course info
+router.get('/course', async (req, res) => {
+  try {
+    const client = getClient(req);
+    const course = await client.getCourseInfo();
+    res.json({ name: course.name, id: course.id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/overview - All students with progress summary
+router.get('/overview', async (req, res) => {
+  try {
+    const client = getClient(req);
+
+    const [students, assignments, submissions] = await Promise.all([
+      client.getStudents(),
+      client.getAssignments(),
+      client.getAllSubmissions(),
+    ]);
+
+    const now = new Date();
+
+    // Only consider published assignments
+    const publishedAssignments = assignments.filter((a) => a.published);
+
+    // Assignments that are already past their due date (or have no due date = count as due)
+    const dueAssignments = publishedAssignments.filter(
+      (a) => !a.dueAt || new Date(a.dueAt) <= now
+    );
+
+    // Future assignments (not yet due)
+    const upcomingAssignments = publishedAssignments.filter(
+      (a) => a.dueAt && new Date(a.dueAt) > now
+    );
+
+    // Build a lookup: submissionsByStudent[userId][assignmentId] = submission
+    const submissionsByStudent = {};
+    submissions.forEach((s) => {
+      if (!submissionsByStudent[s.userId]) {
+        submissionsByStudent[s.userId] = {};
+      }
+      submissionsByStudent[s.userId][s.assignmentId] = s;
+    });
+
+    const overview = students.map((student) => {
+      const studentSubs = submissionsByStudent[student.id] || {};
+
+      let submitted = 0;
+      let missing = 0;
+      let late = 0;
+      let graded = 0;
+      let totalScore = 0;
+      let totalPossible = 0;
+
+      dueAssignments.forEach((assignment) => {
+        const sub = studentSubs[assignment.id];
+        if (!sub) {
+          missing += 1;
+          return;
+        }
+
+        if (sub.excused) {
+          // Count excused as submitted for tracking purposes
+          submitted += 1;
+          return;
+        }
+
+        const state = sub.workflowState;
+        if (state === 'submitted' || state === 'graded' || state === 'pending_review') {
+          submitted += 1;
+          if (sub.late) late += 1;
+        } else {
+          missing += 1;
+        }
+
+        if (state === 'graded' && sub.score !== null && sub.score !== undefined) {
+          graded += 1;
+          totalScore += sub.score;
+          if (assignment.pointsPossible) {
+            totalPossible += assignment.pointsPossible;
+          }
+        }
+      });
+
+      const totalDue = dueAssignments.length;
+      const submissionRate = totalDue > 0 ? (submitted / totalDue) * 100 : 100;
+      const gradePercentage =
+        totalPossible > 0 ? (totalScore / totalPossible) * 100 : null;
+
+      // Determine status
+      let status;
+      if (totalDue === 0) {
+        status = 'op_schema'; // Nothing due yet
+      } else if (submissionRate >= 90) {
+        status = 'op_schema';
+      } else if (submissionRate >= 70) {
+        status = 'let_op';
+      } else {
+        status = 'achterloopt';
+      }
+
+      // Override: if grade is good, allow "voorloopt"
+      if (
+        student.grade !== null &&
+        student.grade !== undefined &&
+        student.grade >= 85 &&
+        submissionRate >= 90
+      ) {
+        status = 'voorloopt';
+      }
+
+      return {
+        id: student.id,
+        name: student.name,
+        sortableName: student.sortableName,
+        avatarUrl: student.avatarUrl,
+        grade: student.grade,
+        letterGrade: student.letterGrade,
+        submitted,
+        missing,
+        late,
+        graded,
+        totalDue,
+        totalAssignments: publishedAssignments.length,
+        upcomingCount: upcomingAssignments.length,
+        submissionRate: Math.round(submissionRate * 10) / 10,
+        gradePercentage:
+          gradePercentage !== null ? Math.round(gradePercentage * 10) / 10 : null,
+        status,
+      };
+    });
+
+    // Sort by sortable name
+    overview.sort((a, b) => a.sortableName.localeCompare(b.sortableName));
+
+    res.json({
+      students: overview,
+      assignmentCount: publishedAssignments.length,
+      dueCount: dueAssignments.length,
+      upcomingCount: upcomingAssignments.length,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/students/:id - Detailed student view with per-assignment breakdown
+router.get('/students/:id', async (req, res) => {
+  try {
+    const client = getClient(req);
+    const studentId = parseInt(req.params.id, 10);
+
+    const [students, assignments, submissions] = await Promise.all([
+      client.getStudents(),
+      client.getAssignments(),
+      client.getAllSubmissions(),
+    ]);
+
+    const student = students.find((s) => s.id === studentId);
+    if (!student) {
+      return res.status(404).json({ error: 'Student niet gevonden' });
+    }
+
+    const publishedAssignments = assignments.filter((a) => a.published);
+    const now = new Date();
+
+    const studentSubs = {};
+    submissions
+      .filter((s) => s.userId === studentId)
+      .forEach((s) => {
+        studentSubs[s.assignmentId] = s;
+      });
+
+    const assignmentDetails = publishedAssignments.map((assignment) => {
+      const sub = studentSubs[assignment.id];
+      const isDue = !assignment.dueAt || new Date(assignment.dueAt) <= now;
+
+      let submissionStatus = 'not_due';
+      if (isDue) {
+        if (!sub || sub.workflowState === 'unsubmitted') {
+          submissionStatus = 'missing';
+        } else if (sub.excused) {
+          submissionStatus = 'excused';
+        } else if (sub.workflowState === 'graded') {
+          submissionStatus = sub.late ? 'graded_late' : 'graded';
+        } else if (sub.workflowState === 'submitted' || sub.workflowState === 'pending_review') {
+          submissionStatus = sub.late ? 'submitted_late' : 'submitted';
+        }
+      } else if (sub && sub.workflowState !== 'unsubmitted') {
+        submissionStatus = 'submitted_early';
+      }
+
+      return {
+        id: assignment.id,
+        name: assignment.name,
+        dueAt: assignment.dueAt,
+        pointsPossible: assignment.pointsPossible,
+        htmlUrl: assignment.htmlUrl,
+        isDue,
+        submissionStatus,
+        score: sub ? sub.score : null,
+        grade: sub ? sub.grade : null,
+        submittedAt: sub ? sub.submittedAt : null,
+        late: sub ? sub.late : false,
+        missing: sub ? sub.missing : isDue,
+      };
+    });
+
+    res.json({
+      student,
+      assignments: assignmentDetails,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;
