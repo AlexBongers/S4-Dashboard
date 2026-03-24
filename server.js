@@ -1,6 +1,6 @@
 'use strict';
 
-require('dotenv').config({ path: 'canvas.env' });
+require('dotenv').config({ path: 'canvas.env', quiet: true });
 
 const express = require('express');
 const path = require('path');
