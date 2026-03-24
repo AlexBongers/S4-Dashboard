@@ -53,25 +53,25 @@
 
       <!-- Dashboard content -->
       <div id="dashboard" class="hidden">
-        <!-- Stats bar -->
+        <!-- Stats bar — clickable cards filter the table -->
         <div class="stats-bar">
-          <div class="stat-card">
+          <div class="stat-card stat-card-clickable" id="statCardTotal" onclick="filterByStatus('all')" title="Alle studenten tonen">
             <span class="stat-value" id="statTotal">–</span>
             <span class="stat-label">Studenten</span>
           </div>
-          <div class="stat-card">
+          <div class="stat-card stat-card-clickable" id="statCardOnTrack" onclick="filterByStatus('op_schema')" title="Filter: Op schema">
             <span class="stat-value stat-green" id="statOnTrack">–</span>
             <span class="stat-label">Op schema</span>
           </div>
-          <div class="stat-card">
+          <div class="stat-card stat-card-clickable" id="statCardWarning" onclick="filterByStatus('let_op')" title="Filter: Let op">
             <span class="stat-value stat-orange" id="statWarning">–</span>
             <span class="stat-label">Let op</span>
           </div>
-          <div class="stat-card">
+          <div class="stat-card stat-card-clickable" id="statCardBehind" onclick="filterByStatus('achterloopt')" title="Filter: Achterloopt">
             <span class="stat-value stat-red" id="statBehind">–</span>
             <span class="stat-label">Achterloopt</span>
           </div>
-          <div class="stat-card">
+          <div class="stat-card stat-card-clickable" id="statCardAhead" onclick="filterByStatus('voorloopt')" title="Filter: Loopt voor">
             <span class="stat-value stat-blue" id="statAhead">–</span>
             <span class="stat-label">Loopt voor</span>
           </div>
@@ -103,6 +103,7 @@
               <option value="name">Naam</option>
               <option value="grade">Cijfer</option>
               <option value="submissionRate">Inleverpercentage</option>
+              <option value="attendancePct">Aanwezigheid</option>
               <option value="missing">Ontbrekend</option>
               <option value="status">Status</option>
             </select>
@@ -115,14 +116,31 @@
           <table class="student-table">
             <thead>
               <tr>
-                <th>Student</th>
-                <th class="center">Status</th>
-                <th class="center">Ingeleverd</th>
-                <th class="center">Ontbrekend</th>
-                <th class="center">Te laat</th>
-                <th class="center">Inleverpercentage</th>
-                <th class="center">Cijfer</th>
-                <th class="center">Actie</th>
+                <th class="th-sort" onclick="sortByColumn('name')">
+                  Student <span class="sort-icon" id="sort-name"></span>
+                </th>
+                <th class="center th-sort" onclick="sortByColumn('status')">
+                  Status <span class="sort-icon" id="sort-status"></span>
+                </th>
+                <th class="center th-sort" onclick="sortByColumn('submissionRate')">
+                  Ingeleverd <span class="sort-icon" id="sort-submissionRate"></span>
+                </th>
+                <th class="center th-sort" onclick="sortByColumn('missing')">
+                  Ontbrekend <span class="sort-icon" id="sort-missing"></span>
+                </th>
+                <th class="center th-sort" onclick="sortByColumn('late')">
+                  Te laat <span class="sort-icon" id="sort-late"></span>
+                </th>
+                <th class="center th-sort" onclick="sortByColumn('submissionRate')">
+                  Inleverpercentage <span class="sort-icon" id="sort-inleverpercentage"></span>
+                </th>
+                <th class="center th-sort" id="thAttendance" onclick="sortByColumn('attendancePct')">
+                  Aanwezigheid <span class="sort-icon" id="sort-attendancePct"></span>
+                </th>
+                <th class="center th-sort" onclick="sortByColumn('grade')">
+                  Cijfer <span class="sort-icon" id="sort-grade"></span>
+                </th>
+                <th class="center">Acties</th>
               </tr>
             </thead>
             <tbody id="studentTableBody"></tbody>
@@ -156,6 +174,31 @@
         <div id="modalContent" class="hidden">
           <h3>Opdrachten overzicht</h3>
           <div class="assignment-list" id="assignmentList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Peilmoment 1 modal -->
+    <div id="peilmomentModal" class="modal hidden" onclick="closePeilmomentOnBackdrop(event)">
+      <div class="modal-content modal-content-narrow">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <img class="modal-avatar" id="pmAvatar" src="" alt="" />
+            <div>
+              <h2 id="pmStudentName"></h2>
+              <span class="badge badge-blue">Peilmoment 1</span>
+            </div>
+          </div>
+          <button class="modal-close" onclick="closePeilmomentModal()">✕</button>
+        </div>
+
+        <div id="pmLoading" class="loading-state">
+          <div class="spinner"></div>
+          <p>Gegevens ophalen…</p>
+        </div>
+
+        <div id="pmContent" class="hidden">
+          <div class="pm-list" id="pmList"></div>
         </div>
       </div>
     </div>

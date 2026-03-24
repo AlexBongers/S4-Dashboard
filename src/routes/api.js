@@ -9,6 +9,34 @@ function getClient(req) {
   return req.app.locals.canvas;
 }
 
+// Peilmoment 1: the four specific assignments to track (matched case-insensitively)
+const PEILMOMENT1_ITEMS = [
+  { key: 'logboek',           label: 'Logboek Professionele Vermogens', pattern: /logboek\s+professionele/i },
+  { key: 'kennisassessment',  label: 'Kennisassessment 1',              pattern: /kennisassess?ment\s*1/i },
+  { key: 'plan',              label: 'Plan van aanpak',                 pattern: /plan\s+van\s+aanpak/i },
+  { key: 'sprintplanning',    label: 'Sprintplanning',                  pattern: /sprint/i },
+];
+
+// Find the first Canvas assignment that looks like attendance tracking.
+// Canvas Roll Call stores attendance as an assignment with submission_type 'attendance',
+// or as an assignment whose name matches common attendance terms.
+function findAttendanceAssignment(assignments) {
+  return (
+    assignments.find((a) => Array.isArray(a.submissionTypes) && a.submissionTypes.includes('attendance')) ||
+    assignments.find((a) => /aanwezigheid|attendance/i.test(a.name)) ||
+    null
+  );
+}
+
+// Calculate attendance percentage for one student from their submissions map.
+function calcAttendancePct(studentSubs, attendanceAssignment) {
+  if (!attendanceAssignment) return null;
+  const sub = studentSubs[attendanceAssignment.id];
+  if (!sub || sub.score === null || sub.score === undefined) return null;
+  if (!attendanceAssignment.pointsPossible) return null;
+  return Math.round((sub.score / attendanceAssignment.pointsPossible) * 1000) / 10;
+}
+
 // GET /api/course - Course info
 router.get('/course', async (req, res) => {
   try {
@@ -35,6 +63,9 @@ router.get('/overview', async (req, res) => {
 
     // Only consider published assignments
     const publishedAssignments = assignments.filter((a) => a.published);
+
+    // Attendance assignment (if the course uses Canvas Roll Call or similar)
+    const attendanceAssignment = findAttendanceAssignment(publishedAssignments);
 
     // Assignments that are already past their due date (or have no due date = count as due)
     const dueAssignments = publishedAssignments.filter(
@@ -140,6 +171,7 @@ router.get('/overview', async (req, res) => {
         gradePercentage:
           gradePercentage !== null ? Math.round(gradePercentage * 10) / 10 : null,
         status,
+        attendancePct: calcAttendancePct(studentSubs, attendanceAssignment),
       };
     });
 
@@ -151,6 +183,7 @@ router.get('/overview', async (req, res) => {
       assignmentCount: publishedAssignments.length,
       dueCount: dueAssignments.length,
       upcomingCount: upcomingAssignments.length,
+      hasAttendance: attendanceAssignment !== null,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -176,6 +209,8 @@ router.get('/students/:id', async (req, res) => {
 
     const publishedAssignments = assignments.filter((a) => a.published);
     const now = new Date();
+
+    const attendanceAssignment = findAttendanceAssignment(publishedAssignments);
 
     const studentSubs = {};
     submissions
@@ -219,9 +254,36 @@ router.get('/students/:id', async (req, res) => {
       };
     });
 
+    // --- Peilmoment 1 data ---
+    const attendancePct = calcAttendancePct(studentSubs, attendanceAssignment);
+
+    const peilmoment1 = PEILMOMENT1_ITEMS.map((item) => {
+      const assignment = publishedAssignments.find((a) => item.pattern.test(a.name));
+      if (!assignment) {
+        return { key: item.key, label: item.label, found: false };
+      }
+      const detail = assignmentDetails.find((d) => d.id === assignment.id);
+      return {
+        key: item.key,
+        label: item.label,
+        found: true,
+        assignmentId: assignment.id,
+        assignmentName: assignment.name,
+        dueAt: assignment.dueAt,
+        pointsPossible: assignment.pointsPossible,
+        htmlUrl: assignment.htmlUrl,
+        submissionStatus: detail ? detail.submissionStatus : 'not_due',
+        score: detail ? detail.score : null,
+        grade: detail ? detail.grade : null,
+        submittedAt: detail ? detail.submittedAt : null,
+      };
+    });
+
     res.json({
       student,
       assignments: assignmentDetails,
+      attendancePct,
+      peilmoment1,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -58,7 +58,15 @@ class CanvasClient {
       per_page: 100,
     });
 
-    return enrollments.map((e) => ({
+    // Deduplicate: students enrolled in multiple sections appear more than once
+    const seen = new Map();
+    for (const e of enrollments) {
+      if (!seen.has(e.user_id)) {
+        seen.set(e.user_id, e);
+      }
+    }
+
+    return Array.from(seen.values()).map((e) => ({
       id: e.user_id,
       name: e.user.name,
       sortableName: e.user.sortable_name,
