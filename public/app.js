@@ -1,5 +1,56 @@
 'use strict';
 
+/* ===== Team configuration ===== */
+const TEAMS = [
+  { number: 1, coach: 'Leo', members: [
+    'Marouane Massoudi', 'Taoufik Amghar', 'Souhail Abbou', 'Kaan Akgürbüz', 'Mats Krook',
+  ]},
+  { number: 2, coach: 'Alex', members: [
+    'Imran El Mahdadi', 'Christian Hulleman', 'Mohammed Chebab', 'Adnane Fakirou', 'Marwan Boukattan',
+  ]},
+  { number: 3, coach: 'Alex', members: [
+    'Fadi El Kasah', 'Imran El Madkouri', 'Jos van der Kroon', 'Ilias Mahdad', 'Anass Arazouk',
+  ]},
+  { number: 4, coach: 'Jeroen', members: [
+    'Vita Meynen', 'Jason Tomeij', 'Abdualah Salha', 'Huy Vuong', 'Joanna Peters', 'Ahmetcan Akın',
+  ]},
+];
+
+/* Map each student name to their local photo path in public/photos/ */
+const STUDENT_PHOTOS = {
+  'Marouane Massoudi':  '/photos/marouane-massoudi.jpg',
+  'Taoufik Amghar':     '/photos/taoufik-amghar.jpg',
+  'Souhail Abbou':      '/photos/souhail-abbou.jpg',
+  'Kaan Akgürbüz':      '/photos/kaan-akgurbuz.jpg',
+  'Mats Krook':         '/photos/mats-krook.jpg',
+  'Imran El Mahdadi':   '/photos/imran-el-mahdadi.jpg',
+  'Christian Hulleman': '/photos/christian-hulleman.jpg',
+  'Mohammed Chebab':    '/photos/mohammed-chebab.jpg',
+  'Adnane Fakirou':     '/photos/adnane-fakirou.jpg',
+  'Marwan Boukattan':   '/photos/marwan-boukattan.jpg',
+  'Fadi El Kasah':      '/photos/fadi-el-kasah.jpg',
+  'Imran El Madkouri':  '/photos/imran-el-madkouri.jpg',
+  'Jos van der Kroon':  '/photos/jos-van-der-kroon.jpg',
+  'Ilias Mahdad':       '/photos/ilias-mahdad.jpg',
+  'Anass Arazouk':      '/photos/anass-arazouk.jpg',
+  'Vita Meynen':        '/photos/vita-meynen.jpg',
+  'Jason Tomeij':       '/photos/jason-tomeij.jpg',
+  'Abdualah Salha':     '/photos/abdualah-salha.jpg',
+  'Huy Vuong':          '/photos/huy-vuong.jpg',
+  'Joanna Peters':      '/photos/joanna-peters.jpg',
+  'Ahmetcan Akın':      '/photos/ahmetcan-akin.jpg',
+};
+
+/* Return the team number (1-4) for a given student name, or null */
+function getTeamNumber(name) {
+  for (const team of TEAMS) {
+    if (team.members.some((m) => m.toLowerCase() === name.toLowerCase())) {
+      return team.number;
+    }
+  }
+  return null;
+}
+
 /* ===== State ===== */
 let allStudents = [];
 let hasAttendance = false;
@@ -177,14 +228,23 @@ function updateSortIndicators() {
   });
 }
 
+/* Show team header groups when: no team/status filter active and no search query */
+function shouldShowTeamGroups(filterTeam, filterStatus, searchQuery) {
+  return filterTeam === 'all' && filterStatus === 'all' && !searchQuery;
+}
+
 /* ===== Table render ===== */
 function renderTable() {
   const filterStatus = document.getElementById('filterStatus').value;
+  const filterTeam = document.getElementById('filterTeam').value;
   const searchQuery = document.getElementById('searchInput').value.toLowerCase().trim();
   const sortBy = document.getElementById('sortBy').value;
 
   let filtered = allStudents.filter((s) => {
     if (filterStatus !== 'all' && s.status !== filterStatus) return false;
+    if (filterTeam !== 'all') {
+      if (String(getTeamNumber(s.name)) !== filterTeam) return false;
+    }
     if (searchQuery && !s.name.toLowerCase().includes(searchQuery)) return false;
     return true;
   });
@@ -230,13 +290,49 @@ function renderTable() {
   }
   noResults.classList.add('hidden');
 
-  tbody.innerHTML = filtered.map((s) => buildStudentRow(s)).join('');
+  // When grouping by team (no specific team selected and no search), group by team
+  if (shouldShowTeamGroups(filterTeam, filterStatus, searchQuery)) {
+    let html = '';
+    for (const team of TEAMS) {
+      const teamStudents = filtered.filter((s) => getTeamNumber(s.name) === team.number);
+      if (teamStudents.length === 0) continue;
+      html += buildTeamHeaderRow(team, teamStudents);
+      html += teamStudents.map((s) => buildStudentRow(s)).join('');
+    }
+    // Students not assigned to any team
+    const unassigned = filtered.filter((s) => getTeamNumber(s.name) === null);
+    if (unassigned.length > 0) {
+      html += `<tr class="team-header-row"><td colspan="6" class="team-header-cell">Niet ingedeeld</td></tr>`;
+      html += unassigned.map((s) => buildStudentRow(s)).join('');
+    }
+    tbody.innerHTML = html;
+  } else {
+    tbody.innerHTML = filtered.map((s) => buildStudentRow(s)).join('');
+  }
+}
+
+function buildTeamHeaderRow(team, students) {
+  const onTrack = students.filter((s) => ['op_schema', 'voorloopt'].includes(s.status)).length;
+  const total = students.length;
+  return `
+    <tr class="team-header-row">
+      <td colspan="6" class="team-header-cell">
+        <span class="team-label">Team ${team.number}</span>
+        <span class="team-coach">Coach: ${escHtml(team.coach)}</span>
+        <span class="team-progress">${onTrack}/${total} op schema</span>
+      </td>
+    </tr>
+  `;
 }
 
 function buildStudentRow(s) {
   const inits = escHtml(initials(s.name));
-  const avatarInner = s.avatarUrl && !s.avatarUrl.includes('unknown')
-    ? `<img src="${escHtml(s.avatarUrl)}" alt="" loading="lazy" onerror="avatarFallback(this)">`
+  // Priority: local repo photo → Canvas avatarUrl → initials text
+  const localPhoto = STUDENT_PHOTOS[s.name];
+  const remotePhoto = s.avatarUrl && !s.avatarUrl.includes('unknown') ? s.avatarUrl : null;
+  const photoSrc = localPhoto || remotePhoto;
+  const avatarInner = photoSrc
+    ? `<img src="${escHtml(photoSrc)}" alt="${inits}" loading="lazy" onerror="avatarFallback(this)">`
     : inits;
 
   const pct = s.submissionRate;
@@ -355,8 +451,11 @@ async function openStudentModal(studentId) {
     const { label, cls } = statusConfig(student.status);
     document.getElementById('modalStudentStatus').innerHTML = `<span class="badge ${cls}">${label}</span>`;
     const avatarEl = document.getElementById('modalAvatar');
-    if (student.avatarUrl && !student.avatarUrl.includes('unknown')) {
-      avatarEl.src = student.avatarUrl;
+    const localPhoto = STUDENT_PHOTOS[student.name];
+    const remotePhoto = student.avatarUrl && !student.avatarUrl.includes('unknown') ? student.avatarUrl : null;
+    const photoSrc = localPhoto || remotePhoto;
+    if (photoSrc) {
+      avatarEl.src = photoSrc;
       avatarEl.style.display = '';
     } else {
       avatarEl.src = '';
@@ -507,12 +606,17 @@ async function openPeilmomentModal(studentId) {
   const student = allStudents.find((s) => s.id === studentId);
   document.getElementById('pmStudentName').textContent = student ? student.name : '';
   const pmAvatar = document.getElementById('pmAvatar');
-  if (student && student.avatarUrl && !student.avatarUrl.includes('unknown')) {
-    pmAvatar.src = student.avatarUrl;
-    pmAvatar.style.display = '';
-  } else {
-    pmAvatar.src = '';
-    pmAvatar.style.display = 'none';
+  if (student) {
+    const localPhoto = STUDENT_PHOTOS[student.name];
+    const remotePhoto = student.avatarUrl && !student.avatarUrl.includes('unknown') ? student.avatarUrl : null;
+    const photoSrc = localPhoto || remotePhoto;
+    if (photoSrc) {
+      pmAvatar.src = photoSrc;
+      pmAvatar.style.display = '';
+    } else {
+      pmAvatar.src = '';
+      pmAvatar.style.display = 'none';
+    }
   }
 
   try {

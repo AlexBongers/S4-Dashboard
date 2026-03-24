@@ -44,8 +44,28 @@ const generalLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// HTTP Basic Auth middleware — password set via DASHBOARD_PASSWORD env var
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || 'Hoedoenzehetallemaal111';
+if (!process.env.DASHBOARD_PASSWORD) {
+  console.warn('Waarschuwing: DASHBOARD_PASSWORD is niet ingesteld. Gebruik het standaardwachtwoord (zie canvas.env.example).');
+}
+function requireAuth(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Basic ')) {
+    const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf-8');
+    const colonIdx = decoded.indexOf(':');
+    const password = colonIdx >= 0 ? decoded.slice(colonIdx + 1) : decoded;
+    if (password === DASHBOARD_PASSWORD) {
+      return next();
+    }
+  }
+  res.set('WWW-Authenticate', 'Basic realm="S4 Student Dashboard", charset="UTF-8"');
+  res.status(401).send('Voer het dashboardwachtwoord in om toegang te krijgen.');
+}
+
 app.use(express.json());
 app.use(generalLimiter);
+app.use(requireAuth);
 app.use(express.static(path.join(__dirname, 'public')));
 
 // API routes
