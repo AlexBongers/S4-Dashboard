@@ -41,10 +41,21 @@ const STUDENT_PHOTOS = {
   'Ahmetcan Akın':      '/photos/ahmetcan-akin.jpg',
 };
 
+/* Strip student number suffix (e.g. " (1886007)") from Canvas display names */
+function normalizeName(name) {
+  return name.replace(/\s*\(\d+\)\s*$/, '').trim();
+}
+
+/* Return the photo path for a student, handling Canvas names with student IDs */
+function getStudentPhoto(name) {
+  return STUDENT_PHOTOS[name] || STUDENT_PHOTOS[normalizeName(name)] || null;
+}
+
 /* Return the team number (1-4) for a given student name, or null */
 function getTeamNumber(name) {
+  const base = normalizeName(name).toLowerCase();
   for (const team of TEAMS) {
-    if (team.members.some((m) => m.toLowerCase() === name.toLowerCase())) {
+    if (team.members.some((m) => m.toLowerCase() === base)) {
       return team.number;
     }
   }
@@ -58,7 +69,7 @@ let sortDir = 'asc';
 
 /* ===== Helpers ===== */
 function initials(name) {
-  return name
+  return normalizeName(name)
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
@@ -118,7 +129,6 @@ function progressColor(pct) {
 /* ===== Data loading ===== */
 async function loadData() {
   showState('loading');
-  document.getElementById('refreshBtn').disabled = true;
 
   try {
     // Load course name and overview in parallel
@@ -153,8 +163,6 @@ async function loadData() {
   } catch (err) {
     document.getElementById('errorMessage').textContent = err.message;
     showState('error');
-  } finally {
-    document.getElementById('refreshBtn').disabled = false;
   }
 }
 
@@ -328,7 +336,7 @@ function buildTeamHeaderRow(team, students) {
 function buildStudentRow(s) {
   const inits = escHtml(initials(s.name));
   // Priority: local repo photo → Canvas avatarUrl → initials text
-  const localPhoto = STUDENT_PHOTOS[s.name];
+  const localPhoto = getStudentPhoto(s.name);
   const remotePhoto = s.avatarUrl && !s.avatarUrl.includes('unknown') ? s.avatarUrl : null;
   const photoSrc = localPhoto || remotePhoto;
   const avatarInner = photoSrc
@@ -451,7 +459,7 @@ async function openStudentModal(studentId) {
     const { label, cls } = statusConfig(student.status);
     document.getElementById('modalStudentStatus').innerHTML = `<span class="badge ${cls}">${label}</span>`;
     const avatarEl = document.getElementById('modalAvatar');
-    const localPhoto = STUDENT_PHOTOS[student.name];
+    const localPhoto = getStudentPhoto(student.name);
     const remotePhoto = student.avatarUrl && !student.avatarUrl.includes('unknown') ? student.avatarUrl : null;
     const photoSrc = localPhoto || remotePhoto;
     if (photoSrc) {
@@ -607,7 +615,7 @@ async function openPeilmomentModal(studentId) {
   document.getElementById('pmStudentName').textContent = student ? student.name : '';
   const pmAvatar = document.getElementById('pmAvatar');
   if (student) {
-    const localPhoto = STUDENT_PHOTOS[student.name];
+    const localPhoto = getStudentPhoto(student.name);
     const remotePhoto = student.avatarUrl && !student.avatarUrl.includes('unknown') ? student.avatarUrl : null;
     const photoSrc = localPhoto || remotePhoto;
     if (photoSrc) {
