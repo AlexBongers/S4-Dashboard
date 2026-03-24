@@ -163,12 +163,9 @@ function updateSortIndicators() {
   // but its th sort-icon id matches the first th with that value
   const colToIconMap = {
     name: ['sort-name'],
-    status: ['sort-status'],
     submissionRate: ['sort-submissionRate', 'sort-inleverpercentage'],
-    missing: ['sort-missing'],
     late: ['sort-late'],
     attendancePct: ['sort-attendancePct'],
-    grade: ['sort-grade'],
   };
   const iconIds = colToIconMap[currentCol] || [];
   iconIds.forEach((iconId) => {
@@ -233,9 +230,6 @@ function renderTable() {
 }
 
 function buildStudentRow(s) {
-  const { label: statusLabel, cls: statusCls } = statusConfig(s.status);
-  const gCls = gradeClass(s.grade);
-
   const avatarContent = s.avatarUrl && !s.avatarUrl.includes('unknown')
     ? `<img src="${escHtml(s.avatarUrl)}" alt="" onerror="this.parentNode.innerHTML='${escHtml(initials(s.name))}'">`
     : escHtml(initials(s.name));
@@ -263,15 +257,16 @@ function buildStudentRow(s) {
         </div>
       </td>
       <td class="center">
-        <span class="badge ${statusCls}">${statusLabel}</span>
+        <div class="action-btns">
+          <button class="detail-btn" data-student-id="${s.id}" onclick="openStudentModal(+this.dataset.studentId)">
+            Details
+          </button>
+          <button class="pm1-btn" data-student-id="${s.id}" onclick="openPeilmomentModal(+this.dataset.studentId)">
+            Peilmoment 1
+          </button>
+        </div>
       </td>
       <td class="center">${s.submitted} / ${s.totalDue}</td>
-      <td class="center">
-        ${s.missing > 0
-          ? `<span style="color: var(--red); font-weight: 600;">${s.missing}</span>`
-          : `<span style="color: var(--green);">0</span>`
-        }
-      </td>
       <td class="center">
         ${s.late > 0
           ? `<span style="color: var(--orange); font-weight: 500;">${s.late}</span>`
@@ -287,22 +282,6 @@ function buildStudentRow(s) {
         </div>
       </td>
       ${attendanceCell}
-      <td class="center">
-        ${s.grade !== null && s.grade !== undefined
-          ? `<span class="grade-pill ${gCls}">${s.grade.toFixed(1)}%</span>`
-          : `<span class="grade-none">—</span>`
-        }
-      </td>
-      <td class="center">
-        <div class="action-btns">
-          <button class="detail-btn" data-student-id="${s.id}" onclick="openStudentModal(+this.dataset.studentId)">
-            Details
-          </button>
-          <button class="pm1-btn" data-student-id="${s.id}" onclick="openPeilmomentModal(+this.dataset.studentId)">
-            Peilmoment 1
-          </button>
-        </div>
-      </td>
     </tr>
   `;
 }

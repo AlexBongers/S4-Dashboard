@@ -12,7 +12,7 @@ function getClient(req) {
 // Peilmoment 1: the four specific assignments to track (matched case-insensitively)
 const PEILMOMENT1_ITEMS = [
   { key: 'logboek',           label: 'Logboek Professionele Vermogens', pattern: /logboek\s+professionele/i },
-  { key: 'kennisassessment',  label: 'Kennisassessment 1',              pattern: /kennisassess?ment\s*1/i },
+  { key: 'kennisassessment',  label: 'Kennisassessment 1',              pattern: /kennis\s*assess?ment\s*1/i },
   { key: 'plan',              label: 'Plan van aanpak',                 pattern: /plan\s+van\s+aanpak/i },
   { key: 'sprintplanning',    label: 'Sprintplanning',                  pattern: /sprint/i },
 ];

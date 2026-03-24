@@ -101,11 +101,9 @@
             <label for="sortBy">Sorteren op:</label>
             <select id="sortBy" onchange="renderTable()">
               <option value="name">Naam</option>
-              <option value="grade">Cijfer</option>
               <option value="submissionRate">Inleverpercentage</option>
               <option value="attendancePct">Aanwezigheid</option>
-              <option value="missing">Ontbrekend</option>
-              <option value="status">Status</option>
+              <option value="late">Te laat</option>
             </select>
             <button class="sort-dir-btn" id="sortDirBtn" onclick="toggleSortDir()">↑</button>
           </div>
@@ -119,14 +117,9 @@
                 <th class="th-sort" onclick="sortByColumn('name')">
                   Student <span class="sort-icon" id="sort-name"></span>
                 </th>
-                <th class="center th-sort" onclick="sortByColumn('status')">
-                  Status <span class="sort-icon" id="sort-status"></span>
-                </th>
+                <th class="center">Acties</th>
                 <th class="center th-sort" onclick="sortByColumn('submissionRate')">
                   Ingeleverd <span class="sort-icon" id="sort-submissionRate"></span>
-                </th>
-                <th class="center th-sort" onclick="sortByColumn('missing')">
-                  Ontbrekend <span class="sort-icon" id="sort-missing"></span>
                 </th>
                 <th class="center th-sort" onclick="sortByColumn('late')">
                   Te laat <span class="sort-icon" id="sort-late"></span>
@@ -137,10 +130,6 @@
                 <th class="center th-sort" id="thAttendance" onclick="sortByColumn('attendancePct')">
                   Aanwezigheid <span class="sort-icon" id="sort-attendancePct"></span>
                 </th>
-                <th class="center th-sort" onclick="sortByColumn('grade')">
-                  Cijfer <span class="sort-icon" id="sort-grade"></span>
-                </th>
-                <th class="center">Acties</th>
               </tr>
             </thead>
             <tbody id="studentTableBody"></tbody>
@@ -186,7 +175,7 @@
             <img class="modal-avatar" id="pmAvatar" src="" alt="" />
             <div>
               <h2 id="pmStudentName"></h2>
-              <span class="badge badge-blue">Peilmoment 1</span>
+              <span class="badge badge-red">Peilmoment 1</span>
             </div>
           </div>
           <button class="modal-close" onclick="closePeilmomentModal()">✕</button>
