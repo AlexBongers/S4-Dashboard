@@ -47,6 +47,10 @@ function statusOrder(status) {
   return order[status] ?? 99;
 }
 
+function pm1StatusOrder(status) {
+  return { green: 0, yellow: 1, red: 2 }[status] ?? 99;
+}
+
 function gradeClass(grade) {
   if (grade === null || grade === undefined) return 'grade-none';
   if (grade >= 75) return 'grade-good';
@@ -109,7 +113,6 @@ function updateStats(data) {
   document.getElementById('statTotal').textContent = students.length;
   document.getElementById('statOnTrack').textContent = students.filter((s) => s.status === 'op_schema').length;
   document.getElementById('statWarning').textContent = students.filter((s) => s.status === 'let_op').length;
-  document.getElementById('statBehind').textContent = students.filter((s) => s.status === 'achterloopt').length;
   document.getElementById('statAhead').textContent = students.filter((s) => s.status === 'voorloopt').length;
   document.getElementById('statAssignments').textContent = data.assignmentCount;
 }
@@ -120,14 +123,13 @@ function filterByStatus(status) {
   select.value = status;
 
   // Update active card highlight
-  ['statCardTotal', 'statCardOnTrack', 'statCardWarning', 'statCardBehind', 'statCardAhead'].forEach((id) => {
+  ['statCardTotal', 'statCardOnTrack', 'statCardWarning', 'statCardAhead'].forEach((id) => {
     document.getElementById(id)?.classList.remove('stat-card-active');
   });
   const cardMap = {
     all: 'statCardTotal',
     op_schema: 'statCardOnTrack',
     let_op: 'statCardWarning',
-    achterloopt: 'statCardBehind',
     voorloopt: 'statCardAhead',
   };
   const activeId = cardMap[status];
@@ -163,6 +165,7 @@ function updateSortIndicators() {
   // but its th sort-icon id matches the first th with that value
   const colToIconMap = {
     name: ['sort-name'],
+    pm1Status: ['sort-pm1Status'],
     submissionRate: ['sort-submissionRate', 'sort-inleverpercentage'],
     late: ['sort-late'],
     attendancePct: ['sort-attendancePct'],
@@ -192,6 +195,9 @@ function renderTable() {
       case 'name':
         cmp = a.sortableName.localeCompare(b.sortableName);
         break;
+      case 'pm1Status':
+        cmp = pm1StatusOrder(a.peilmoment1Status) - pm1StatusOrder(b.peilmoment1Status);
+        break;
       case 'grade':
         cmp = (a.grade ?? -1) - (b.grade ?? -1);
         break;
@@ -202,11 +208,9 @@ function renderTable() {
         cmp = (a.attendancePct ?? -1) - (b.attendancePct ?? -1);
         break;
       case 'missing':
-        // Higher missing count = more at-risk; reversed so 'asc' puts worst students first
         cmp = b.missing - a.missing;
         break;
       case 'late':
-        // Higher late count = more at-risk; same reasoning as missing
         cmp = b.late - a.late;
         break;
       case 'status':
@@ -230,12 +234,20 @@ function renderTable() {
 }
 
 function buildStudentRow(s) {
-  const avatarContent = s.avatarUrl && !s.avatarUrl.includes('unknown')
-    ? `<img src="${escHtml(s.avatarUrl)}" alt="" onerror="this.parentNode.innerHTML='${escHtml(initials(s.name))}'">`
-    : escHtml(initials(s.name));
+  const inits = escHtml(initials(s.name));
+  const avatarInner = s.avatarUrl && !s.avatarUrl.includes('unknown')
+    ? `<img src="${escHtml(s.avatarUrl)}" alt="" loading="lazy" onerror="avatarFallback(this)">`
+    : inits;
 
   const pct = s.submissionRate;
   const color = progressColor(pct);
+
+  // PM1 button: color variant + progress bar
+  const pm1Status = s.peilmoment1Status || 'red';
+  const pm1Green = s.peilmoment1GreenCount ?? 0;
+  const pm1Total = s.peilmoment1Total ?? 0;
+  const pm1Pct = pm1Total > 0 ? Math.round((pm1Green / pm1Total) * 100) : 0;
+  const pm1BtnCls = `pm1-btn pm1-btn-${pm1Status}`;
 
   // Attendance cell
   let attendanceCell;
@@ -252,7 +264,7 @@ function buildStudentRow(s) {
     <tr>
       <td>
         <div class="student-name-cell">
-          <div class="student-avatar">${avatarContent}</div>
+          <div class="student-avatar" data-init="${inits}">${avatarInner}</div>
           <span class="student-full-name">${escHtml(s.name)}</span>
         </div>
       </td>
@@ -261,9 +273,14 @@ function buildStudentRow(s) {
           <button class="detail-btn" data-student-id="${s.id}" onclick="openStudentModal(+this.dataset.studentId)">
             Details
           </button>
-          <button class="pm1-btn" data-student-id="${s.id}" onclick="openPeilmomentModal(+this.dataset.studentId)">
-            Peilmoment 1
-          </button>
+          <div class="pm1-wrap">
+            <button class="${pm1BtnCls}" data-student-id="${s.id}" onclick="openPeilmomentModal(+this.dataset.studentId)" title="${pm1Green}/${pm1Total} items klaar">
+              Peilmoment 1
+            </button>
+            <div class="pm1-bar-bg">
+              <div class="pm1-bar-fill pm1-fill-${pm1Status}" style="width:${pm1Pct}%"></div>
+            </div>
+          </div>
         </div>
       </td>
       <td class="center">${s.submitted} / ${s.totalDue}</td>
@@ -294,6 +311,12 @@ function escHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/* Safe fallback for avatar: replaces failed img with initials text */
+function avatarFallback(el) {
+  const init = el.parentNode.dataset.init || '';
+  el.parentNode.textContent = init;
 }
 
 /* ===== Sort direction toggle ===== */

@@ -67,10 +67,6 @@
             <span class="stat-value stat-orange" id="statWarning">–</span>
             <span class="stat-label">Let op</span>
           </div>
-          <div class="stat-card stat-card-clickable" id="statCardBehind" onclick="filterByStatus('achterloopt')" title="Filter: Achterloopt">
-            <span class="stat-value stat-red" id="statBehind">–</span>
-            <span class="stat-label">Achterloopt</span>
-          </div>
           <div class="stat-card stat-card-clickable" id="statCardAhead" onclick="filterByStatus('voorloopt')" title="Filter: Loopt voor">
             <span class="stat-value stat-blue" id="statAhead">–</span>
             <span class="stat-label">Loopt voor</span>
@@ -90,7 +86,6 @@
               <option value="voorloopt">Loopt voor</option>
               <option value="op_schema">Op schema</option>
               <option value="let_op">Let op</option>
-              <option value="achterloopt">Achterloopt</option>
             </select>
           </div>
           <div class="filter-group">
@@ -101,6 +96,7 @@
             <label for="sortBy">Sorteren op:</label>
             <select id="sortBy" onchange="renderTable()">
               <option value="name">Naam</option>
+              <option value="pm1Status">Peilmoment 1</option>
               <option value="submissionRate">Inleverpercentage</option>
               <option value="attendancePct">Aanwezigheid</option>
               <option value="late">Te laat</option>
@@ -117,7 +113,9 @@
                 <th class="th-sort" onclick="sortByColumn('name')">
                   Student <span class="sort-icon" id="sort-name"></span>
                 </th>
-                <th class="center">Acties</th>
+                <th class="center th-sort" onclick="sortByColumn('pm1Status')">
+                  Acties <span class="sort-icon" id="sort-pm1Status"></span>
+                </th>
                 <th class="center th-sort" onclick="sortByColumn('submissionRate')">
                   Ingeleverd <span class="sort-icon" id="sort-submissionRate"></span>
                 </th>

@@ -86,6 +86,12 @@ router.get('/overview', async (req, res) => {
       submissionsByStudent[s.userId][s.assignmentId] = s;
     });
 
+    // Precompute which assignments map to each Peilmoment 1 item
+    const pm1AssignmentRefs = PEILMOMENT1_ITEMS.map((item) => ({
+      assignment: publishedAssignments.find((a) => item.pattern.test(a.name)) || null,
+    }));
+    const PM1_TOTAL = PEILMOMENT1_ITEMS.length;
+
     const overview = students.map((student) => {
       const studentSubs = submissionsByStudent[student.id] || {};
 
@@ -153,6 +159,29 @@ router.get('/overview', async (req, res) => {
         status = 'voorloopt';
       }
 
+      // Peilmoment 1: count how many items are complete for this student
+      let pm1GreenCount = 0;
+      pm1AssignmentRefs.forEach(({ assignment }) => {
+        if (!assignment) return;
+        const isDuePm1 = !assignment.dueAt || new Date(assignment.dueAt) <= now;
+        const sub = studentSubs[assignment.id];
+        let pm1Sub;
+        if (isDuePm1) {
+          if (!sub || sub.workflowState === 'unsubmitted') pm1Sub = 'missing';
+          else if (sub.excused) pm1Sub = 'excused';
+          else pm1Sub = sub.workflowState;
+        } else {
+          pm1Sub = (sub && sub.workflowState !== 'unsubmitted') ? 'submitted_early' : 'not_due';
+        }
+        if (['graded', 'submitted', 'pending_review', 'excused', 'submitted_early'].includes(pm1Sub)) {
+          pm1GreenCount++;
+        }
+      });
+
+      const peilmoment1Status = pm1GreenCount >= PM1_TOTAL ? 'green'
+        : pm1GreenCount > 0 ? 'yellow'
+        : 'red';
+
       return {
         id: student.id,
         name: student.name,
@@ -172,6 +201,9 @@ router.get('/overview', async (req, res) => {
           gradePercentage !== null ? Math.round(gradePercentage * 10) / 10 : null,
         status,
         attendancePct: calcAttendancePct(studentSubs, attendanceAssignment),
+        peilmoment1Status,
+        peilmoment1GreenCount: pm1GreenCount,
+        peilmoment1Total: PM1_TOTAL,
       };
     });
 
