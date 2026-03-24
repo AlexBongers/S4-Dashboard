@@ -14,7 +14,7 @@ services:
     runtime: node
     buildCommand: npm ci --omit=dev
     startCommand: npm start
-    healthCheckPath: /
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
@@ -26,3 +26,5 @@ services:
         sync: false
       - key: CANVAS_COURSE_ID
         sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false   # wachtwoord voor HTTP Basic Auth op het dashboard

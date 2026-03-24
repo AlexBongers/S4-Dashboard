@@ -65,6 +65,12 @@ function requireAuth(req, res, next) {
 
 app.use(express.json());
 app.use(generalLimiter);
+
+// Health check — must be registered BEFORE requireAuth so Render.com deploy checks pass
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 app.use(requireAuth);
 app.use(express.static(path.join(__dirname, 'public')));
 
