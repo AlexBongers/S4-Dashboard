@@ -20,7 +20,15 @@
             <p class="course-name" id="courseName">Canvas leeromgeving</p>
           </div>
         </div>
-
+        <div class="header-actions">
+          <button class="btn btn-secondary" id="refreshBtn" onclick="loadData()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+              <polyline points="23 4 23 10 17 10"/>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            Vernieuwen
+          </button>
+        </div>
       </div>
     </header>
 
@@ -45,29 +53,6 @@
 
       <!-- Dashboard content -->
       <div id="dashboard" class="hidden">
-        <!-- Stats bar — clickable cards filter the table -->
-        <div class="stats-bar">
-          <div class="stat-card stat-card-clickable" id="statCardTotal" onclick="filterByStatus('all')" title="Alle studenten tonen">
-            <span class="stat-value" id="statTotal">–</span>
-            <span class="stat-label">Studenten</span>
-          </div>
-          <div class="stat-card stat-card-clickable" id="statCardOnTrack" onclick="filterByStatus('op_schema')" title="Filter: Op schema">
-            <span class="stat-value stat-green" id="statOnTrack">–</span>
-            <span class="stat-label">Op schema</span>
-          </div>
-          <div class="stat-card stat-card-clickable" id="statCardWarning" onclick="filterByStatus('let_op')" title="Filter: Let op">
-            <span class="stat-value stat-orange" id="statWarning">–</span>
-            <span class="stat-label">Let op</span>
-          </div>
-          <div class="stat-card stat-card-clickable" id="statCardAhead" onclick="filterByStatus('voorloopt')" title="Filter: Loopt voor">
-            <span class="stat-value stat-blue" id="statAhead">–</span>
-            <span class="stat-label">Loopt voor</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value" id="statAssignments">–</span>
-            <span class="stat-label">Opdrachten</span>
-          </div>
-        </div>
 
         <!-- Filters & sort -->
         <div class="toolbar">

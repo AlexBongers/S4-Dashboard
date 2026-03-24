@@ -51,6 +51,12 @@ function getStudentPhoto(name) {
   return STUDENT_PHOTOS[name] || STUDENT_PHOTOS[normalizeName(name)] || null;
 }
 
+/* Return a proxied avatar URL for Canvas images, or null if unavailable/default */
+function getProxiedAvatarUrl(avatarUrl) {
+  if (!avatarUrl || avatarUrl.includes('unknown')) return null;
+  return `/api/avatar?url=${encodeURIComponent(avatarUrl)}`;
+}
+
 /* Return the team number (1-4) for a given student name, or null */
 function getTeamNumber(name) {
   const base = normalizeName(name).toLowerCase();
@@ -129,6 +135,7 @@ function progressColor(pct) {
 /* ===== Data loading ===== */
 async function loadData() {
   showState('loading');
+  document.getElementById('refreshBtn').disabled = true;
 
   try {
     // Load course name and overview in parallel
@@ -156,45 +163,15 @@ async function loadData() {
       thAttendance.classList.toggle('hidden-col', !hasAttendance);
     }
 
-    updateStats(overviewData);
     updateSortIndicators();
     renderTable();
     showState('dashboard');
   } catch (err) {
     document.getElementById('errorMessage').textContent = err.message;
     showState('error');
+  } finally {
+    document.getElementById('refreshBtn').disabled = false;
   }
-}
-
-/* ===== Stats bar ===== */
-function updateStats(data) {
-  const students = data.students;
-  document.getElementById('statTotal').textContent = students.length;
-  document.getElementById('statOnTrack').textContent = students.filter((s) => s.status === 'op_schema').length;
-  document.getElementById('statWarning').textContent = students.filter((s) => s.status === 'let_op').length;
-  document.getElementById('statAhead').textContent = students.filter((s) => s.status === 'voorloopt').length;
-  document.getElementById('statAssignments').textContent = data.assignmentCount;
-}
-
-/* ===== Filter by status (stat card click) ===== */
-function filterByStatus(status) {
-  const select = document.getElementById('filterStatus');
-  select.value = status;
-
-  // Update active card highlight
-  ['statCardTotal', 'statCardOnTrack', 'statCardWarning', 'statCardAhead'].forEach((id) => {
-    document.getElementById(id)?.classList.remove('stat-card-active');
-  });
-  const cardMap = {
-    all: 'statCardTotal',
-    op_schema: 'statCardOnTrack',
-    let_op: 'statCardWarning',
-    voorloopt: 'statCardAhead',
-  };
-  const activeId = cardMap[status];
-  if (activeId) document.getElementById(activeId)?.classList.add('stat-card-active');
-
-  renderTable();
 }
 
 /* ===== Sort by column header click ===== */
@@ -337,7 +314,7 @@ function buildStudentRow(s) {
   const inits = escHtml(initials(s.name));
   // Priority: local repo photo → Canvas avatarUrl → initials text
   const localPhoto = getStudentPhoto(s.name);
-  const remotePhoto = s.avatarUrl && !s.avatarUrl.includes('unknown') ? s.avatarUrl : null;
+  const remotePhoto = getProxiedAvatarUrl(s.avatarUrl);
   const photoSrc = localPhoto || remotePhoto;
   const avatarInner = photoSrc
     ? `<img src="${escHtml(photoSrc)}" alt="${inits}" loading="lazy" onerror="avatarFallback(this)">`
@@ -460,7 +437,7 @@ async function openStudentModal(studentId) {
     document.getElementById('modalStudentStatus').innerHTML = `<span class="badge ${cls}">${label}</span>`;
     const avatarEl = document.getElementById('modalAvatar');
     const localPhoto = getStudentPhoto(student.name);
-    const remotePhoto = student.avatarUrl && !student.avatarUrl.includes('unknown') ? student.avatarUrl : null;
+    const remotePhoto = getProxiedAvatarUrl(student.avatarUrl);
     const photoSrc = localPhoto || remotePhoto;
     if (photoSrc) {
       avatarEl.src = photoSrc;
@@ -616,7 +593,7 @@ async function openPeilmomentModal(studentId) {
   const pmAvatar = document.getElementById('pmAvatar');
   if (student) {
     const localPhoto = getStudentPhoto(student.name);
-    const remotePhoto = student.avatarUrl && !student.avatarUrl.includes('unknown') ? student.avatarUrl : null;
+    const remotePhoto = getProxiedAvatarUrl(student.avatarUrl);
     const photoSrc = localPhoto || remotePhoto;
     if (photoSrc) {
       pmAvatar.src = photoSrc;

@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const fetch = require('node-fetch');
 const CanvasClient = require('../canvas');
 
 const router = express.Router();
@@ -319,6 +320,52 @@ router.get('/students/:id', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/avatar?url=... — Proxy Canvas avatar images so the browser never needs
+// to load them directly (handles auth-protected or short-token URLs on canvas.hu.nl).
+router.get('/avatar', async (req, res) => {
+  const avatarUrl = req.query.url;
+  if (!avatarUrl) return res.status(400).end();
+
+  // Validate: must be an https URL
+  let parsed;
+  try {
+    parsed = new URL(avatarUrl);
+    if (parsed.protocol !== 'https:') return res.status(400).end();
+  } catch {
+    return res.status(400).end();
+  }
+
+  // Allow only the configured Canvas domain and known Canvas CDN hostnames
+  const canvasBase = process.env.CANVAS_BASE_URL || '';
+  let canvasHostname = null;
+  try { canvasHostname = new URL(canvasBase).hostname; } catch { /* ignore */ }
+  const allowedHosts = new Set(
+    [
+      canvasHostname,
+      'du11hjcvx0uqb.cloudfront.net',
+      'instructure-uploads.s3.amazonaws.com',
+      'instructure-uploads-global.s3.amazonaws.com',
+    ].filter(Boolean)
+  );
+  if (!allowedHosts.has(parsed.hostname)) return res.status(403).end();
+
+  try {
+    const upstream = await fetch(avatarUrl, {
+      headers: { Authorization: `Bearer ${process.env.CANVAS_API_TOKEN}` },
+    });
+    if (!upstream.ok) return res.status(upstream.status).end();
+
+    const ct = upstream.headers.get('content-type') || 'image/jpeg';
+    if (!ct.startsWith('image/')) return res.status(415).end();
+
+    res.set('Content-Type', ct);
+    res.set('Cache-Control', 'public, max-age=86400');
+    upstream.body.pipe(res);
+  } catch {
+    res.status(502).end();
   }
 });
 
