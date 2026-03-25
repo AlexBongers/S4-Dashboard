@@ -84,7 +84,7 @@
             <select id="sortBy" onchange="renderTable()">
               <option value="name">Naam</option>
               <option value="pm1Status">Peilmoment 1</option>
-              <option value="submissionRate">Inleverpercentage</option>
+              <option value="submissionRate">Voortgang</option>
               <option value="attendancePct">Aanwezigheid</option>
               <option value="late">Te laat</option>
             </select>
@@ -104,13 +104,13 @@
                   Acties <span class="sort-icon" id="sort-pm1Status"></span>
                 </th>
                 <th class="center th-sort" onclick="sortByColumn('submissionRate')">
-                  Ingeleverd <span class="sort-icon" id="sort-submissionRate"></span>
+                  Voltooid <span class="sort-icon" id="sort-submissionRate"></span>
                 </th>
                 <th class="center th-sort" onclick="sortByColumn('late')">
                   Te laat <span class="sort-icon" id="sort-late"></span>
                 </th>
                 <th class="center th-sort" onclick="sortByColumn('submissionRate')">
-                  Inleverpercentage <span class="sort-icon" id="sort-inleverpercentage"></span>
+                  Voortgang % <span class="sort-icon" id="sort-inleverpercentage"></span>
                 </th>
                 <th class="center th-sort" id="thAttendance" onclick="sortByColumn('attendancePct')">
                   Aanwezigheid <span class="sort-icon" id="sort-attendancePct"></span>

@@ -491,7 +491,7 @@ function buildModalStats(student, assignments, attendancePct) {
   return `
     <div class="modal-stat">
       <span class="modal-stat-value">${submitted}/${due.length}</span>
-      <span class="modal-stat-label">Ingeleverd</span>
+      <span class="modal-stat-label">Voltooid</span>
     </div>
     <div class="modal-stat">
       <span class="modal-stat-value" style="color: var(--red);">${missing}</span>
@@ -513,20 +513,39 @@ function buildModalStats(student, assignments, attendancePct) {
   `;
 }
 
+/* Resolve the status display for an assignment, with pass/fail grade override.
+ * For 'complete'/'incomplete' grades the workflow-state label is replaced by a
+ * clear Dutch "Voltooid" / "Niet voltooid" label so teachers don't see the
+ * meaningless "Beoordeeld" text alongside a hidden 0 pt score. */
+function resolveAssignmentStatus(grade, submissionStatus) {
+  if (grade === 'complete') {
+    return { label: 'Voltooid', dotCls: 'dot-green', badgeCls: 'badge-green' };
+  }
+  if (grade === 'incomplete') {
+    return { label: 'Niet voltooid', dotCls: 'dot-red', badgeCls: 'badge-red' };
+  }
+  return assignmentStatusInfo(submissionStatus);
+}
+
 function buildAssignmentItem(a) {
-  const statusInfo = assignmentStatusInfo(a.submissionStatus);
+  const statusInfo = resolveAssignmentStatus(a.grade, a.submissionStatus);
+
   const dueText = a.isDue
     ? `Inleverdatum: ${formatDateShort(a.dueAt)}`
     : `Deadline: ${formatDateShort(a.dueAt)}`;
 
-  const scoreText = a.score !== null && a.score !== undefined && a.pointsPossible
+  // Don't show raw numeric score for pass/fail assignments; the badge already conveys the result
+  const isPassFail = a.grade === 'complete' || a.grade === 'incomplete';
+  const scoreText = !isPassFail && a.score !== null && a.score !== undefined && a.pointsPossible
     ? `${a.score} / ${a.pointsPossible} pt`
-    : a.score !== null && a.score !== undefined
+    : !isPassFail && a.score !== null && a.score !== undefined
     ? `${a.score} pt`
     : '';
 
-  const nameHtml = a.htmlUrl
-    ? `<a href="${escHtml(a.htmlUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(a.name)}</a>`
+  // Prefer SpeedGrader link (direct to student's submission) over generic assignment page
+  const linkUrl = a.speedGraderUrl || a.htmlUrl;
+  const nameHtml = linkUrl
+    ? `<a href="${escHtml(linkUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(a.name)}</a>`
     : escHtml(a.name);
 
   return `
@@ -636,15 +655,22 @@ function buildPeilmomentContent(peilmoment1, attendancePct) {
       `;
     }
 
-    const si = assignmentStatusInfo(item.submissionStatus);
-    const scoreText = item.score !== null && item.score !== undefined && item.pointsPossible
+    // Resolve status with pass/fail grade override (shared helper)
+    const si = resolveAssignmentStatus(item.grade, item.submissionStatus);
+
+    // Hide raw numeric score for pass/fail assignments
+    const isPassFail = item.grade === 'complete' || item.grade === 'incomplete';
+    const scoreText = !isPassFail && item.score !== null && item.score !== undefined && item.pointsPossible
       ? `${item.score} / ${item.pointsPossible} pt`
-      : item.score !== null && item.score !== undefined
+      : !isPassFail && item.score !== null && item.score !== undefined
       ? `${item.score} pt`
       : '';
     const dueText = item.dueAt ? `Deadline: ${formatDateShort(item.dueAt)}` : '';
-    const nameHtml = item.htmlUrl
-      ? `<a href="${escHtml(item.htmlUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(item.assignmentName || item.label)}</a>`
+
+    // Prefer SpeedGrader link (direct to student's submission)
+    const linkUrl = item.speedGraderUrl || item.htmlUrl;
+    const nameHtml = linkUrl
+      ? `<a href="${escHtml(linkUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(item.assignmentName || item.label)}</a>`
       : escHtml(item.assignmentName || item.label);
 
     return `

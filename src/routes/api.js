@@ -38,6 +38,37 @@ function calcAttendancePct(studentSubs, attendanceAssignment) {
   return Math.round((sub.score / attendanceAssignment.pointsPossible) * 1000) / 10;
 }
 
+// Regex that matches a Canvas assignment page URL and captures the course+host prefix
+// and the assignment ID, e.g. https://canvas.hu.nl/courses/50289/assignments/12345
+const ASSIGNMENT_URL_RE = /^(https?:\/\/[^/]+\/courses\/\d+)\/assignments\/(\d+)/;
+
+// Build a Canvas SpeedGrader URL from an assignment htmlUrl and a student user ID.
+// htmlUrl format: https://canvas.example.nl/courses/50289/assignments/12345
+// SpeedGrader URL: https://canvas.example.nl/courses/50289/gradebook/speed_grader?assignment_id=12345&student_id=67890
+function buildSpeedGraderUrl(htmlUrl, studentId) {
+  if (!htmlUrl) return null;
+  const m = htmlUrl.match(ASSIGNMENT_URL_RE);
+  if (!m) return null;
+  return `${m[1]}/gradebook/speed_grader?assignment_id=${m[2]}&student_id=${studentId}`;
+}
+
+// Determine whether a graded submission counts as "completed".
+// For pass/fail (complete_incomplete) assignments, grade === 'complete'.
+// For numeric assignments, any score > 0 is considered completed.
+// Ungraded submitted/pending_review submissions are also counted (benefit of the doubt).
+function isCompleted(sub) {
+  if (!sub) return false;
+  if (sub.excused) return true;
+  const state = sub.workflowState;
+  if (state === 'submitted' || state === 'pending_review') return true;
+  if (state === 'graded') {
+    if (sub.grade === 'complete') return true;
+    if (sub.score !== null && sub.score !== undefined && sub.score > 0) return true;
+    return false;
+  }
+  return false;
+}
+
 // GET /api/course - Course info
 router.get('/course', async (req, res) => {
   try {
@@ -117,8 +148,17 @@ router.get('/overview', async (req, res) => {
         }
 
         const state = sub.workflowState;
-        if (state === 'submitted' || state === 'graded' || state === 'pending_review') {
+        if (state === 'submitted' || state === 'pending_review') {
+          // Submitted but not yet graded — give benefit of the doubt
           submitted += 1;
+          if (sub.late) late += 1;
+        } else if (state === 'graded') {
+          // Only count as completed if actually passed/completed
+          if (isCompleted(sub)) {
+            submitted += 1;
+          } else {
+            missing += 1;
+          }
           if (sub.late) late += 1;
         } else {
           missing += 1;
@@ -174,8 +214,11 @@ router.get('/overview', async (req, res) => {
         } else {
           pm1Sub = (sub && sub.workflowState !== 'unsubmitted') ? 'submitted_early' : 'not_due';
         }
-        if (['graded', 'submitted', 'pending_review', 'excused', 'submitted_early'].includes(pm1Sub)) {
+        if (['submitted', 'pending_review', 'excused', 'submitted_early'].includes(pm1Sub)) {
           pm1GreenCount++;
+        } else if (pm1Sub === 'graded') {
+          // For graded peilmoment items, only count if actually passed
+          if (isCompleted(sub)) pm1GreenCount++;
         }
       });
 
@@ -277,6 +320,7 @@ router.get('/students/:id', async (req, res) => {
         dueAt: assignment.dueAt,
         pointsPossible: assignment.pointsPossible,
         htmlUrl: assignment.htmlUrl,
+        speedGraderUrl: buildSpeedGraderUrl(assignment.htmlUrl, studentId),
         isDue,
         submissionStatus,
         score: sub ? sub.score : null,
@@ -305,6 +349,7 @@ router.get('/students/:id', async (req, res) => {
         dueAt: assignment.dueAt,
         pointsPossible: assignment.pointsPossible,
         htmlUrl: assignment.htmlUrl,
+        speedGraderUrl: buildSpeedGraderUrl(assignment.htmlUrl, studentId),
         submissionStatus: detail ? detail.submissionStatus : 'not_due',
         score: detail ? detail.score : null,
         grade: detail ? detail.grade : null,
