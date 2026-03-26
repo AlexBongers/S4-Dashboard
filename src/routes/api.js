@@ -22,9 +22,35 @@ const PEILMOMENT1_ITEMS = [
   { key: 'teambranding',      label: 'Teambranding presentatie',        assignmentId: 398881, pattern: /teambranding/i },
 ];
 
-// Margin (in percentage points) used for dynamic "op schema" status thresholds.
-// Students within this margin below the class median submission rate are "op schema".
-const OP_SCHEMA_MARGIN = 2;
+// Weights for the multi-factor health score used to determine student status.
+// The health score combines four factors into a 0-100 composite score.
+const HEALTH_WEIGHTS = {
+  submission: 0.50,   // submission rate — are they turning work in?
+  timeliness: 0.20,   // on-time ratio — are they submitting before deadlines?
+  grade: 0.20,        // grade performance — how is the quality of work?
+  engagement: 0.10,   // recent activity — are they actively using the platform?
+};
+
+// Absolute thresholds for health score → status mapping.
+const HEALTH_THRESHOLDS = {
+  voorloopt: 80,    // must also have high submission rate and decent grade
+  opSchema: 55,
+  letOp: 35,
+  // below letOp → achterloopt
+};
+
+// Default grade score (0-100) used when a student has no graded submissions yet.
+// Set to 55 so ungraded students aren't unfairly penalised or rewarded.
+const DEFAULT_GRADE_SCORE = 55;
+
+// Engagement scoring tiers: days since last activity → engagement score.
+// Evaluated in order; first match wins.
+const ENGAGEMENT_TIERS = [
+  { maxDays: 3, score: 100 },
+  { maxDays: 7, score: 70 },
+  { maxDays: 14, score: 40 },
+];
+const ENGAGEMENT_INACTIVE_SCORE = 10;
 
 // Find the first Canvas assignment that looks like attendance tracking.
 // Canvas Roll Call stores attendance as an assignment with submission_type 'attendance',
@@ -84,15 +110,6 @@ function findPm1Assignment(item, assignments) {
     if (byId) return byId;
   }
   return assignments.find((a) => item.pattern.test(a.name)) || null;
-}
-
-// Compute the median of a numeric array (must be non-empty).
-function median(arr) {
-  const sorted = [...arr].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? (sorted[mid - 1] + sorted[mid]) / 2
-    : sorted[mid];
 }
 
 // GET /api/course - Course info
@@ -300,33 +317,58 @@ router.get('/overview', async (req, res) => {
       };
     });
 
-    // Second pass: assign status using dynamic thresholds based on class median
-    const rates = rawOverview.map((s) => s.submissionRate);
-    const medianRate = rates.length > 0 ? median(rates) : 0;
-
+    // Second pass: assign status using multi-factor health score
     const overview = rawOverview.map((s) => {
-      let status;
       if (s.totalDue === 0) {
-        status = 'op_schema'; // Nothing due yet
-      } else if (s.submissionRate >= medianRate - OP_SCHEMA_MARGIN) {
+        return { ...s, healthScore: 100, status: 'op_schema' };
+      }
+
+      // 1. Submission component (0-100): direct submission rate
+      const submissionScore = s.submissionRate;
+
+      // 2. Timeliness component (0-100): percentage of submitted work that was on time
+      const lateRatio = s.submitted > 0 ? (s.late / s.submitted) : 0;
+      const timelinessScore = (1 - lateRatio) * 100;
+
+      // 3. Grade component (0-100): use computed grade, default if none yet
+      const gradeScore = s.gradePercentage !== null ? s.gradePercentage : DEFAULT_GRADE_SCORE;
+
+      // 4. Engagement component (0-100): based on recency of last activity
+      let engagementScore = ENGAGEMENT_INACTIVE_SCORE;
+      if (s.lastActivityAt) {
+        const daysSinceActivity = Math.floor(
+          (now.getTime() - new Date(s.lastActivityAt).getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const tier = ENGAGEMENT_TIERS.find((t) => daysSinceActivity <= t.maxDays);
+        engagementScore = tier ? tier.score : ENGAGEMENT_INACTIVE_SCORE;
+      }
+
+      // Weighted composite health score (0-100)
+      const healthScore = Math.round(
+        (HEALTH_WEIGHTS.submission * submissionScore +
+         HEALTH_WEIGHTS.timeliness * timelinessScore +
+         HEALTH_WEIGHTS.grade * gradeScore +
+         HEALTH_WEIGHTS.engagement * engagementScore) * 10
+      ) / 10;
+
+      // Determine status from absolute thresholds
+      let status;
+      if (
+        healthScore >= HEALTH_THRESHOLDS.voorloopt &&
+        s.submissionRate >= 90 &&
+        s.gradePercentage !== null &&
+        s.gradePercentage >= 75
+      ) {
+        status = 'voorloopt';
+      } else if (healthScore >= HEALTH_THRESHOLDS.opSchema) {
         status = 'op_schema';
-      } else if (s.submissionRate >= medianRate - 2 * OP_SCHEMA_MARGIN) {
+      } else if (healthScore >= HEALTH_THRESHOLDS.letOp) {
         status = 'let_op';
       } else {
         status = 'achterloopt';
       }
 
-      // Override: if grade is good and well above median, allow "voorloopt"
-      if (
-        s.grade !== null &&
-        s.grade !== undefined &&
-        s.grade >= 85 &&
-        s.submissionRate >= medianRate + OP_SCHEMA_MARGIN
-      ) {
-        status = 'voorloopt';
-      }
-
-      return { ...s, status };
+      return { ...s, healthScore, status };
     });
 
     // Sort by sortable name
