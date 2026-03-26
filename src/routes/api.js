@@ -9,17 +9,22 @@ function getClient(req) {
   return req.app.locals.canvas;
 }
 
-// Peilmoment 1: the assignments to track (matched case-insensitively)
+// Peilmoment 1: the assignments to track.
+// Each item is matched by Canvas assignment ID first, then by regex pattern as fallback.
 const PEILMOMENT1_ITEMS = [
   { key: 'logboek',           label: 'Logboek Professionele Vermogens', pattern: /logboek\s+professionele/i },
   { key: 'kennisassessment',  label: 'Kennisassessment 1',              pattern: /kennis\s*assess?ment\s*1/i },
   { key: 'plan',              label: 'Plan van aanpak',                 pattern: /plan\s+van\s+aanpak/i },
-  { key: 'sprintplanning',    label: 'Sprintplanning',                  pattern: /sprintplanning/i },
-  { key: 'peilmoment1',       label: 'Peilmoment 1',                    pattern: /^peilmoment\s*1$/i },
-  { key: 'sprint2release',    label: 'Sprint 2 release',                pattern: /sprint\s*2\s*release/i },
-  { key: 'teamcontract',      label: 'Teamcontract',                    pattern: /teamcontract/i },
-  { key: 'teambranding',      label: 'Teambranding presentatie',        pattern: /teambranding/i },
+  { key: 'sprintplanning',    label: 'Sprintplanning',                  assignmentId: 392606, pattern: /sprint\s*planning/i },
+  { key: 'peilmoment1',       label: 'Peilmoment 1',                    assignmentId: 392598, pattern: /^peilmoment\s*1$/i },
+  { key: 'sprint2release',    label: 'Sprint 2 release',                assignmentId: 392607, pattern: /sprint\s*2\s*release/i },
+  { key: 'teamcontract',      label: 'Teamcontract',                    assignmentId: 398216, pattern: /teamcontract/i },
+  { key: 'teambranding',      label: 'Teambranding presentatie',        assignmentId: 398881, pattern: /teambranding/i },
 ];
+
+// Margin (in percentage points) used for dynamic "op schema" status thresholds.
+// Students within this margin below the class median submission rate are "op schema".
+const OP_SCHEMA_MARGIN = 3;
 
 // Find the first Canvas assignment that looks like attendance tracking.
 // Canvas Roll Call stores attendance as an assignment with submission_type 'attendance',
@@ -70,6 +75,24 @@ function isCompleted(sub) {
     return false;
   }
   return false;
+}
+
+// Find a PM1 assignment: try by Canvas assignment ID first, then by regex pattern.
+function findPm1Assignment(item, assignments) {
+  if (item.assignmentId) {
+    const byId = assignments.find((a) => a.id === item.assignmentId);
+    if (byId) return byId;
+  }
+  return assignments.find((a) => item.pattern.test(a.name)) || null;
+}
+
+// Compute the median of a numeric array (must be non-empty).
+function median(arr) {
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
 }
 
 // GET /api/course - Course info
@@ -123,11 +146,13 @@ router.get('/overview', async (req, res) => {
 
     // Precompute which assignments map to each Peilmoment 1 item
     const pm1AssignmentRefs = PEILMOMENT1_ITEMS.map((item) => ({
-      assignment: publishedAssignments.find((a) => item.pattern.test(a.name)) || null,
+      assignment: findPm1Assignment(item, publishedAssignments),
     }));
-    const PM1_TOTAL = PEILMOMENT1_ITEMS.length;
+    // Only count PM1 items that actually exist in Canvas towards the total
+    const PM1_TOTAL = pm1AssignmentRefs.filter((r) => r.assignment !== null).length;
 
-    const overview = students.map((student) => {
+    // First pass: compute per-student stats (status assigned in second pass)
+    const rawOverview = students.map((student) => {
       const studentSubs = submissionsByStudent[student.id] || {};
 
       let submitted = 0;
@@ -181,28 +206,6 @@ router.get('/overview', async (req, res) => {
       const gradePercentage =
         totalPossible > 0 ? (totalScore / totalPossible) * 100 : null;
 
-      // Determine status
-      let status;
-      if (totalDue === 0) {
-        status = 'op_schema'; // Nothing due yet
-      } else if (submissionRate >= 90) {
-        status = 'op_schema';
-      } else if (submissionRate >= 70) {
-        status = 'let_op';
-      } else {
-        status = 'achterloopt';
-      }
-
-      // Override: if grade is good, allow "voorloopt"
-      if (
-        student.grade !== null &&
-        student.grade !== undefined &&
-        student.grade >= 85 &&
-        submissionRate >= 90
-      ) {
-        status = 'voorloopt';
-      }
-
       // Peilmoment 1: count how many items are complete for this student
       let pm1GreenCount = 0;
       pm1AssignmentRefs.forEach(({ assignment }) => {
@@ -246,12 +249,40 @@ router.get('/overview', async (req, res) => {
         submissionRate: Math.round(submissionRate * 10) / 10,
         gradePercentage:
           gradePercentage !== null ? Math.round(gradePercentage * 10) / 10 : null,
-        status,
         attendancePct: calcAttendancePct(studentSubs, attendanceAssignment),
         peilmoment1Status,
         peilmoment1GreenCount: pm1GreenCount,
         peilmoment1Total: PM1_TOTAL,
       };
+    });
+
+    // Second pass: assign status using dynamic thresholds based on class median
+    const rates = rawOverview.map((s) => s.submissionRate);
+    const medianRate = rates.length > 0 ? median(rates) : 0;
+
+    const overview = rawOverview.map((s) => {
+      let status;
+      if (s.totalDue === 0) {
+        status = 'op_schema'; // Nothing due yet
+      } else if (s.submissionRate >= medianRate - OP_SCHEMA_MARGIN) {
+        status = 'op_schema';
+      } else if (s.submissionRate >= medianRate - 2 * OP_SCHEMA_MARGIN) {
+        status = 'let_op';
+      } else {
+        status = 'achterloopt';
+      }
+
+      // Override: if grade is good and well above median, allow "voorloopt"
+      if (
+        s.grade !== null &&
+        s.grade !== undefined &&
+        s.grade >= 85 &&
+        s.submissionRate >= medianRate + OP_SCHEMA_MARGIN
+      ) {
+        status = 'voorloopt';
+      }
+
+      return { ...s, status };
     });
 
     // Sort by sortable name
@@ -338,7 +369,7 @@ router.get('/students/:id', async (req, res) => {
     const attendancePct = calcAttendancePct(studentSubs, attendanceAssignment);
 
     const peilmoment1 = PEILMOMENT1_ITEMS.map((item) => {
-      const assignment = publishedAssignments.find((a) => item.pattern.test(a.name));
+      const assignment = findPm1Assignment(item, publishedAssignments);
       if (!assignment) {
         return { key: item.key, label: item.label, found: false };
       }
