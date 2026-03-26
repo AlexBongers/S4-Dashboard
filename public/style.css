@@ -792,6 +792,74 @@ body {
   margin-top: 0.1rem;
 }
 
+/* ===== Trend arrows ===== */
+.trend-arrow {
+  display: inline-block;
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-left: 0.3rem;
+  min-width: 14px;
+  text-align: center;
+}
+.trend-up { color: var(--green); }
+.trend-down { color: var(--red); }
+.trend-steady { color: var(--gray-500); }
+
+/* ===== Inactive warning ===== */
+.inactive-warning {
+  margin-left: 0.35rem;
+  font-size: 0.8rem;
+  cursor: help;
+}
+
+/* ===== Assignment group headers in modal ===== */
+.assignment-group {
+  margin-bottom: 0.75rem;
+}
+
+.assignment-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.25rem;
+  margin-bottom: 0.35rem;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.assignment-group-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--gray-700);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.assignment-group-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--gray-500);
+  white-space: nowrap;
+}
+
+.assignment-group-bar-bg {
+  display: inline-block;
+  width: 60px;
+  height: 5px;
+  background: var(--gray-200);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.assignment-group-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.4s ease;
+}
+
 /* ===== Responsive ===== */
 
 /* Tablets and below */

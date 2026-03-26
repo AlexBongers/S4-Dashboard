@@ -104,6 +104,28 @@ function formatDateShort(dateStr) {
   return d.toLocaleDateString('nl-NL', { day: '2-digit', month: 'short' });
 }
 
+function formatRelativeTime(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now - d;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return 'Vandaag';
+  if (diffDays === 1) return 'Gisteren';
+  if (diffDays < 7) return `${diffDays} dagen geleden`;
+  const weeks = Math.floor(diffDays / 7);
+  if (weeks === 1) return '1 week geleden';
+  return `${weeks} weken geleden`;
+}
+
+function trendArrow(trend) {
+  switch (trend) {
+    case 'up': return '<span class="trend-arrow trend-up" title="Stijgend: meer inleveringen recent">↑</span>';
+    case 'down': return '<span class="trend-arrow trend-down" title="Dalend: minder inleveringen recent">↓</span>';
+    default: return '<span class="trend-arrow trend-steady" title="Stabiel">→</span>';
+  }
+}
+
 function statusConfig(status) {
   switch (status) {
     case 'voorloopt':
@@ -361,6 +383,15 @@ function buildStudentRow(s) {
   const pct = s.submissionRate;
   const color = progressColor(pct);
 
+  // Inactive warning: show ⚠️ if last activity > 5 days ago
+  let inactiveWarning = '';
+  if (s.lastActivityAt) {
+    const diffDays = Math.floor((Date.now() - new Date(s.lastActivityAt).getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays >= 5) {
+      inactiveWarning = `<span class="inactive-warning" title="Inactief: ${formatRelativeTime(s.lastActivityAt)}">⚠️</span>`;
+    }
+  }
+
   // PM1 button: color variant + progress bar
   const pm1Status = s.peilmoment1Status || 'red';
   const pm1Green = s.peilmoment1GreenCount ?? 0;
@@ -384,7 +415,7 @@ function buildStudentRow(s) {
       <td>
         <div class="student-name-cell">
           <div class="student-avatar" data-init="${inits}">${avatarInner}</div>
-          <span class="student-full-name">${escHtml(s.name)}</span>
+          <span class="student-full-name">${escHtml(s.name)}${inactiveWarning}</span>
         </div>
       </td>
       <td class="center">
@@ -415,6 +446,7 @@ function buildStudentRow(s) {
             <div class="progress-bar-fill" style="width: ${pct}%; background: ${color};"></div>
           </div>
           <span class="progress-label">${pct}%</span>
+          ${trendArrow(s.trend)}
         </div>
       </td>
       ${attendanceCell}
@@ -514,9 +546,9 @@ async function openStudentModal(studentId) {
     const st = student || {};
     modalStats.innerHTML = buildModalStats(st, data.assignments, data.attendancePct);
 
-    // Render assignment list
+    // Render assignment list grouped by assignment group
     document.getElementById('assignmentList').innerHTML =
-      data.assignments.map((a) => buildAssignmentItem(a)).join('');
+      buildGroupedAssignmentList(data.assignments, data.assignmentGroups || []);
 
     modalLoading.classList.add('hidden');
     modalContent.classList.remove('hidden');
@@ -542,6 +574,45 @@ function buildModalStats(student, assignments, attendancePct) {
       </div>`
     : '';
 
+  // Last activity
+  const lastActivityText = formatRelativeTime(student.lastActivityAt);
+  const lastActivityDays = student.lastActivityAt
+    ? Math.floor((Date.now() - new Date(student.lastActivityAt).getTime()) / (1000 * 60 * 60 * 24))
+    : null;
+  const lastActivityCls = lastActivityDays !== null && lastActivityDays >= 5 ? 'style="color: var(--red);"' : '';
+  const lastActivityStat = `<div class="modal-stat">
+      <span class="modal-stat-value" ${lastActivityCls}>${lastActivityText || '—'}</span>
+      <span class="modal-stat-label">Laatst actief</span>
+    </div>`;
+
+  // Last submission
+  const lastSubmittedText = student.lastSubmittedAt ? formatDateShort(student.lastSubmittedAt) : '—';
+  const lastSubmittedStat = `<div class="modal-stat">
+      <span class="modal-stat-value">${lastSubmittedText}</span>
+      <span class="modal-stat-label">Laatste inlevering</span>
+    </div>`;
+
+  // Trend
+  const trendLabel = student.trend === 'up' ? '↑ Stijgend' : student.trend === 'down' ? '↓ Dalend' : '→ Stabiel';
+  const trendColor = student.trend === 'up' ? 'color: var(--green);' : student.trend === 'down' ? 'color: var(--red);' : 'color: var(--gray-500);';
+  const trendStat = `<div class="modal-stat">
+      <span class="modal-stat-value" style="${trendColor}">${trendLabel}</span>
+      <span class="modal-stat-label">Momentum</span>
+    </div>`;
+
+  // Analytics
+  let analyticsStat = '';
+  if (student.pageViews !== null && student.pageViews !== undefined) {
+    analyticsStat = `<div class="modal-stat">
+        <span class="modal-stat-value">${student.pageViews}</span>
+        <span class="modal-stat-label">Paginaweergaven</span>
+      </div>
+      <div class="modal-stat">
+        <span class="modal-stat-value">${student.participations ?? '—'}</span>
+        <span class="modal-stat-label">Participatie</span>
+      </div>`;
+  }
+
   return `
     <div class="modal-stat">
       <span class="modal-stat-value">${submitted}/${due.length}</span>
@@ -564,6 +635,10 @@ function buildModalStats(student, assignments, attendancePct) {
       <span class="modal-stat-label">Huidig cijfer</span>
     </div>
     ${attendanceStat}
+    ${lastActivityStat}
+    ${lastSubmittedStat}
+    ${trendStat}
+    ${analyticsStat}
   `;
 }
 
@@ -613,6 +688,61 @@ function buildAssignmentItem(a) {
       <span class="assignment-badge badge ${statusInfo.badgeCls}">${statusInfo.label}</span>
     </div>
   `;
+}
+
+function buildGroupedAssignmentList(assignments, assignmentGroups) {
+  // If no groups available, fall back to flat list
+  if (!assignmentGroups || assignmentGroups.length === 0) {
+    return assignments.map((a) => buildAssignmentItem(a)).join('');
+  }
+
+  // Group assignments by assignmentGroupId
+  const grouped = {};
+  const groupOrder = {};
+  assignmentGroups.forEach((g) => {
+    grouped[g.id] = [];
+    groupOrder[g.id] = g.position ?? 999;
+  });
+
+  assignments.forEach((a) => {
+    const gid = a.assignmentGroupId;
+    if (!grouped[gid]) grouped[gid] = [];
+    grouped[gid].push(a);
+  });
+
+  // Sort groups by position
+  const sortedGroupIds = Object.keys(grouped)
+    .filter((gid) => grouped[gid].length > 0)
+    .sort((a, b) => (groupOrder[a] ?? 999) - (groupOrder[b] ?? 999));
+
+  return sortedGroupIds.map((gid) => {
+    const group = assignmentGroups.find((g) => g.id === parseInt(gid, 10));
+    const groupName = group ? group.name : 'Overig';
+    const items = grouped[gid];
+
+    // Calculate group progress
+    const dueItems = items.filter((a) => a.isDue);
+    const completedItems = dueItems.filter((a) =>
+      ['graded', 'graded_late', 'submitted', 'submitted_late', 'submitted_early', 'excused'].includes(a.submissionStatus)
+    ).length;
+    const groupPct = dueItems.length > 0 ? Math.round((completedItems / dueItems.length) * 100) : 100;
+    const groupColor = progressColor(groupPct);
+
+    return `
+      <div class="assignment-group">
+        <div class="assignment-group-header">
+          <span class="assignment-group-name">${escHtml(groupName)}</span>
+          <span class="assignment-group-progress">
+            <span class="assignment-group-bar-bg">
+              <span class="assignment-group-bar-fill" style="width:${groupPct}%; background:${groupColor};"></span>
+            </span>
+            ${completedItems}/${dueItems.length}
+          </span>
+        </div>
+        ${items.map((a) => buildAssignmentItem(a)).join('')}
+      </div>
+    `;
+  }).join('');
 }
 
 function assignmentStatusInfo(status) {
@@ -832,7 +962,7 @@ function exportCsv() {
   const { filtered } = getFilteredStudents();
 
   // CSV header
-  const headers = ['Student', 'Team', 'Voltooid', 'Te laat', 'Voortgang %', 'Status'];
+  const headers = ['Student', 'Team', 'Voltooid', 'Te laat', 'Voortgang %', 'Momentum', 'Status', 'Laatst actief', 'Laatste inlevering'];
   if (hasAttendance) headers.push('Aanwezigheid %');
 
   const csvEscape = (val) => {
@@ -850,6 +980,8 @@ function exportCsv() {
     achterloopt: 'Achterloopt',
   };
 
+  const trendLabels = { up: 'Stijgend', down: 'Dalend', steady: 'Stabiel' };
+
   const rows = filtered.map((s) => {
     const team = getTeamNumber(s.name);
     const row = [
@@ -858,7 +990,10 @@ function exportCsv() {
       csvEscape(`${s.submitted}/${s.totalDue}`),
       csvEscape(s.late),
       csvEscape(s.submissionRate + '%'),
+      csvEscape(trendLabels[s.trend] || ''),
       csvEscape(statusLabels[s.status] || s.status),
+      csvEscape(formatRelativeTime(s.lastActivityAt) || ''),
+      csvEscape(s.lastSubmittedAt ? formatDateShort(s.lastSubmittedAt) : ''),
     ];
     if (hasAttendance) {
       row.push(csvEscape(s.attendancePct !== null && s.attendancePct !== undefined ? s.attendancePct.toFixed(1) + '%' : ''));

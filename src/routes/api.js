@@ -24,7 +24,7 @@ const PEILMOMENT1_ITEMS = [
 
 // Margin (in percentage points) used for dynamic "op schema" status thresholds.
 // Students within this margin below the class median submission rate are "op schema".
-const OP_SCHEMA_MARGIN = 3;
+const OP_SCHEMA_MARGIN = 2;
 
 // Find the first Canvas assignment that looks like attendance tracking.
 // Canvas Roll Call stores attendance as an assignment with submission_type 'attendance',
@@ -111,10 +111,11 @@ router.get('/overview', async (req, res) => {
   try {
     const client = getClient(req);
 
-    const [students, assignments, submissions] = await Promise.all([
+    const [students, assignments, submissions, analyticsSummaries] = await Promise.all([
       client.getStudents(),
       client.getAssignments(),
       client.getAllSubmissions(),
+      client.getStudentSummaries(),
     ]);
 
     const now = new Date();
@@ -161,6 +162,7 @@ router.get('/overview', async (req, res) => {
       let graded = 0;
       let totalScore = 0;
       let totalPossible = 0;
+      let lastSubmittedAt = null;
 
       dueAssignments.forEach((assignment) => {
         const sub = studentSubs[assignment.id];
@@ -199,6 +201,23 @@ router.get('/overview', async (req, res) => {
             totalPossible += assignment.pointsPossible;
           }
         }
+
+        // Track most recent submission timestamp
+        if (sub.submittedAt) {
+          if (!lastSubmittedAt || new Date(sub.submittedAt) > new Date(lastSubmittedAt)) {
+            lastSubmittedAt = sub.submittedAt;
+          }
+        }
+      });
+
+      // Also check upcoming assignments for early submissions
+      upcomingAssignments.forEach((assignment) => {
+        const sub = studentSubs[assignment.id];
+        if (sub && sub.submittedAt) {
+          if (!lastSubmittedAt || new Date(sub.submittedAt) > new Date(lastSubmittedAt)) {
+            lastSubmittedAt = sub.submittedAt;
+          }
+        }
       });
 
       const totalDue = dueAssignments.length;
@@ -232,6 +251,25 @@ router.get('/overview', async (req, res) => {
         : pm1GreenCount > 0 ? 'yellow'
         : 'red';
 
+      // Submission trend: compare submissions in recent 2 weeks vs prior 2 weeks
+      const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+      const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
+      let recentCount = 0;
+      let priorCount = 0;
+      Object.values(studentSubs).forEach((sub) => {
+        if (!sub.submittedAt) return;
+        const t = new Date(sub.submittedAt);
+        if (t >= twoWeeksAgo && t <= now) recentCount++;
+        else if (t >= fourWeeksAgo && t < twoWeeksAgo) priorCount++;
+      });
+      // trend: 'up' if recent > prior, 'down' if recent < prior, 'steady' otherwise
+      let trend = 'steady';
+      if (recentCount > priorCount + 1) trend = 'up';
+      else if (recentCount < priorCount - 1) trend = 'down';
+
+      // Canvas analytics data
+      const analytics = analyticsSummaries[student.id] || {};
+
       return {
         id: student.id,
         name: student.name,
@@ -239,6 +277,11 @@ router.get('/overview', async (req, res) => {
         avatarUrl: student.avatarUrl,
         grade: student.grade,
         letterGrade: student.letterGrade,
+        lastActivityAt: student.lastActivityAt,
+        lastSubmittedAt,
+        trend,
+        pageViews: analytics.pageViews ?? null,
+        participations: analytics.participations ?? null,
         submitted,
         missing,
         late,
@@ -306,10 +349,11 @@ router.get('/students/:id', async (req, res) => {
     const client = getClient(req);
     const studentId = parseInt(req.params.id, 10);
 
-    const [students, assignments, submissions] = await Promise.all([
+    const [students, assignments, submissions, assignmentGroups] = await Promise.all([
       client.getStudents(),
       client.getAssignments(),
       client.getAllSubmissions(),
+      client.getAssignmentGroups(),
     ]);
 
     const student = students.find((s) => s.id === studentId);
@@ -328,6 +372,10 @@ router.get('/students/:id', async (req, res) => {
       .forEach((s) => {
         studentSubs[s.assignmentId] = s;
       });
+
+    // Build assignment group lookup
+    const groupLookup = {};
+    assignmentGroups.forEach((g) => { groupLookup[g.id] = g.name; });
 
     const assignmentDetails = publishedAssignments.map((assignment) => {
       const sub = studentSubs[assignment.id];
@@ -355,6 +403,8 @@ router.get('/students/:id', async (req, res) => {
         pointsPossible: assignment.pointsPossible,
         htmlUrl: assignment.htmlUrl,
         speedGraderUrl: buildSpeedGraderUrl(assignment.htmlUrl, studentId),
+        assignmentGroupId: assignment.assignmentGroupId,
+        assignmentGroupName: groupLookup[assignment.assignmentGroupId] || null,
         isDue,
         submissionStatus,
         score: sub ? sub.score : null,
@@ -394,6 +444,7 @@ router.get('/students/:id', async (req, res) => {
     res.json({
       student,
       assignments: assignmentDetails,
+      assignmentGroups,
       attendancePct,
       peilmoment1,
     });

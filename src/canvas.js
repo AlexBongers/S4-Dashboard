@@ -108,6 +108,7 @@ class CanvasClient {
       avatarUrl: e.user.avatar_url,
       grade: e.grades ? e.grades.current_score : null,
       letterGrade: e.grades ? e.grades.current_grade : null,
+      lastActivityAt: e.last_activity_at || null,
     }));
     this._cacheSet(cacheKey, result);
     return result;
@@ -131,6 +132,7 @@ class CanvasClient {
       published: a.published,
       submissionTypes: a.submission_types,
       htmlUrl: a.html_url,
+      assignmentGroupId: a.assignment_group_id,
     }));
     this._cacheSet(cacheKey, result);
     return result;
@@ -172,6 +174,53 @@ class CanvasClient {
     const result = await this._get(`/courses/${this.courseId}`);
     this._cacheSet(cacheKey, result);
     return result;
+  }
+
+  async getAssignmentGroups() {
+    const cacheKey = `assignment_groups_${this.courseId}`;
+    const cached = this._cacheGet(cacheKey);
+    if (cached) return cached;
+
+    const groups = await this._get(`/courses/${this.courseId}/assignment_groups`, {
+      per_page: 100,
+    });
+
+    const result = groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      position: g.position,
+      groupWeight: g.group_weight,
+    }));
+    this._cacheSet(cacheKey, result);
+    return result;
+  }
+
+  async getStudentSummaries() {
+    const cacheKey = `student_summaries_${this.courseId}`;
+    const cached = this._cacheGet(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const summaries = await this._get(
+        `/courses/${this.courseId}/analytics/student_summaries`,
+        { per_page: 100 }
+      );
+
+      // Build a lookup by student id
+      const result = {};
+      for (const s of summaries) {
+        result[s.id] = {
+          pageViews: s.page_views ?? null,
+          participations: s.participations ?? null,
+          tardinessBreakdown: s.tardiness_breakdown || null,
+        };
+      }
+      this._cacheSet(cacheKey, result);
+      return result;
+    } catch {
+      // Analytics API may not be available for all courses
+      return {};
+    }
   }
 }
 
