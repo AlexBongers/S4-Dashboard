@@ -2,6 +2,9 @@
 
 const fetch = require('node-fetch');
 
+/** Default cache lifetime in milliseconds (5 minutes). */
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
 class CanvasClient {
   constructor({ apiToken, baseUrl, courseId }) {
     // Strip trailing slash and extract the origin (base host)
@@ -12,6 +15,34 @@ class CanvasClient {
       Authorization: `Bearer ${apiToken}`,
       'Content-Type': 'application/json',
     };
+
+    // Simple in-memory cache: { key: { data, timestamp } }
+    this._cache = {};
+  }
+
+  /**
+   * Return cached data if still fresh, otherwise null.
+   */
+  _cacheGet(key) {
+    const entry = this._cache[key];
+    if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
+      return entry.data;
+    }
+    return null;
+  }
+
+  /**
+   * Store data in the cache.
+   */
+  _cacheSet(key, data) {
+    this._cache[key] = { data, timestamp: Date.now() };
+  }
+
+  /**
+   * Clear all cached data (called when the user explicitly refreshes).
+   */
+  clearCache() {
+    this._cache = {};
   }
 
   async _get(path, params = {}) {
@@ -52,6 +83,10 @@ class CanvasClient {
   }
 
   async getStudents() {
+    const cacheKey = `students_${this.courseId}`;
+    const cached = this._cacheGet(cacheKey);
+    if (cached) return cached;
+
     const enrollments = await this._get(`/courses/${this.courseId}/enrollments`, {
       type: ['StudentEnrollment'],
       state: ['active'],
@@ -66,7 +101,7 @@ class CanvasClient {
       }
     }
 
-    return Array.from(seen.values()).map((e) => ({
+    const result = Array.from(seen.values()).map((e) => ({
       id: e.user_id,
       name: e.user.name,
       sortableName: e.user.sortable_name,
@@ -74,15 +109,21 @@ class CanvasClient {
       grade: e.grades ? e.grades.current_score : null,
       letterGrade: e.grades ? e.grades.current_grade : null,
     }));
+    this._cacheSet(cacheKey, result);
+    return result;
   }
 
   async getAssignments() {
+    const cacheKey = `assignments_${this.courseId}`;
+    const cached = this._cacheGet(cacheKey);
+    if (cached) return cached;
+
     const assignments = await this._get(`/courses/${this.courseId}/assignments`, {
       per_page: 100,
       order_by: 'due_at',
     });
 
-    return assignments.map((a) => ({
+    const result = assignments.map((a) => ({
       id: a.id,
       name: a.name,
       dueAt: a.due_at,
@@ -91,9 +132,15 @@ class CanvasClient {
       submissionTypes: a.submission_types,
       htmlUrl: a.html_url,
     }));
+    this._cacheSet(cacheKey, result);
+    return result;
   }
 
   async getAllSubmissions() {
+    const cacheKey = `submissions_${this.courseId}`;
+    const cached = this._cacheGet(cacheKey);
+    if (cached) return cached;
+
     const submissions = await this._get(
       `/courses/${this.courseId}/students/submissions`,
       {
@@ -102,7 +149,7 @@ class CanvasClient {
       }
     );
 
-    return submissions.map((s) => ({
+    const result = submissions.map((s) => ({
       assignmentId: s.assignment_id,
       userId: s.user_id,
       score: s.score,
@@ -113,10 +160,18 @@ class CanvasClient {
       missing: s.missing,
       excused: s.excused,
     }));
+    this._cacheSet(cacheKey, result);
+    return result;
   }
 
   async getCourseInfo() {
-    return this._get(`/courses/${this.courseId}`);
+    const cacheKey = `course_${this.courseId}`;
+    const cached = this._cacheGet(cacheKey);
+    if (cached) return cached;
+
+    const result = await this._get(`/courses/${this.courseId}`);
+    this._cacheSet(cacheKey, result);
+    return result;
   }
 }
 

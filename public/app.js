@@ -80,6 +80,7 @@ function getTeamNumber(name) {
 let allStudents = [];
 let hasAttendance = false;
 let sortDir = 'asc';
+let lastUpdatedTime = null;
 
 /* ===== Helpers ===== */
 function initials(name) {
@@ -146,6 +147,9 @@ async function loadData() {
   document.getElementById('refreshBtn').disabled = true;
 
   try {
+    // Clear server-side cache so we get fresh Canvas data
+    await fetch('/api/cache/clear', { method: 'POST' }).catch(() => {});
+
     // Load course name and overview in parallel
     const [courseRes, overviewRes] = await Promise.all([
       fetch('/api/course'),
@@ -171,6 +175,13 @@ async function loadData() {
       thAttendance.classList.toggle('hidden-col', !hasAttendance);
     }
 
+    // Update "last updated" timestamp
+    lastUpdatedTime = new Date();
+    updateLastUpdated();
+
+    // Enable CSV export
+    document.getElementById('exportBtn').disabled = false;
+
     updateSortIndicators();
     renderTable();
     showState('dashboard');
@@ -180,6 +191,14 @@ async function loadData() {
   } finally {
     document.getElementById('refreshBtn').disabled = false;
   }
+}
+
+/* ===== Last updated timestamp ===== */
+function updateLastUpdated() {
+  const el = document.getElementById('lastUpdated');
+  if (!el || !lastUpdatedTime) return;
+  const time = lastUpdatedTime.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+  el.textContent = `Bijgewerkt om ${time}`;
 }
 
 /* ===== Sort by column header click ===== */
@@ -445,6 +464,7 @@ async function openStudentModal(studentId) {
   modalLoading.classList.remove('hidden');
   modalContent.classList.add('hidden');
   modalStats.innerHTML = '';
+  trapFocus(modal);
 
   // Set basic info from already-loaded data
   const student = allStudents.find((s) => s.id === studentId);
@@ -608,7 +628,9 @@ function assignmentStatusInfo(status) {
 
 /* ===== Modal close ===== */
 function closeModal() {
-  document.getElementById('studentModal').classList.add('hidden');
+  const modal = document.getElementById('studentModal');
+  modal.classList.add('hidden');
+  releaseFocus(modal);
 }
 
 function closeModalOnBackdrop(event) {
@@ -627,6 +649,7 @@ async function openPeilmomentModal(studentId) {
   pmLoading.classList.remove('hidden');
   pmContent.classList.add('hidden');
   document.getElementById('pmList').innerHTML = '';
+  trapFocus(modal);
 
   // Set student info from already-loaded data
   const student = allStudents.find((s) => s.id === studentId);
@@ -744,7 +767,9 @@ function buildPeilmomentContent(peilmoment1, attendancePct) {
 }
 
 function closePeilmomentModal() {
-  document.getElementById('peilmomentModal').classList.add('hidden');
+  const modal = document.getElementById('peilmomentModal');
+  modal.classList.add('hidden');
+  releaseFocus(modal);
 }
 
 function closePeilmomentOnBackdrop(event) {
@@ -759,6 +784,127 @@ document.addEventListener('keydown', (e) => {
     closePeilmomentModal();
   }
 });
+
+/* ===== Focus trapping for modals ===== */
+let previouslyFocusedElement = null;
+
+function trapFocus(modalEl) {
+  previouslyFocusedElement = document.activeElement;
+  const focusable = modalEl.querySelectorAll(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  );
+  if (focusable.length === 0) return;
+
+  const firstFocusable = focusable[0];
+  const lastFocusable = focusable[focusable.length - 1];
+  firstFocusable.focus();
+
+  function handleTab(e) {
+    if (e.key !== 'Tab') return;
+    if (e.shiftKey) {
+      if (document.activeElement === firstFocusable) {
+        e.preventDefault();
+        lastFocusable.focus();
+      }
+    } else {
+      if (document.activeElement === lastFocusable) {
+        e.preventDefault();
+        firstFocusable.focus();
+      }
+    }
+  }
+
+  modalEl._trapHandler = handleTab;
+  modalEl.addEventListener('keydown', handleTab);
+}
+
+function releaseFocus(modalEl) {
+  if (modalEl._trapHandler) {
+    modalEl.removeEventListener('keydown', modalEl._trapHandler);
+    delete modalEl._trapHandler;
+  }
+  if (previouslyFocusedElement && previouslyFocusedElement.focus) {
+    previouslyFocusedElement.focus();
+    previouslyFocusedElement = null;
+  }
+}
+
+/* ===== Export to CSV ===== */
+function exportCsv() {
+  const filterStatus = document.getElementById('filterStatus').value;
+  const filterTeam = document.getElementById('filterTeam').value;
+  const searchQuery = document.getElementById('searchInput').value.toLowerCase().trim();
+  const sortBy = document.getElementById('sortBy').value;
+
+  let filtered = allStudents.filter((s) => {
+    if (filterStatus !== 'all' && s.status !== filterStatus) return false;
+    if (filterTeam !== 'all') {
+      if (String(getTeamNumber(s.name)) !== filterTeam) return false;
+    }
+    if (searchQuery && !s.name.toLowerCase().includes(searchQuery)) return false;
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    let cmp = 0;
+    switch (sortBy) {
+      case 'name': cmp = a.sortableName.localeCompare(b.sortableName); break;
+      case 'pm1Status': cmp = pm1StatusOrder(a.peilmoment1Status) - pm1StatusOrder(b.peilmoment1Status); break;
+      case 'submissionRate': cmp = a.submissionRate - b.submissionRate; break;
+      case 'attendancePct': cmp = (a.attendancePct ?? -1) - (b.attendancePct ?? -1); break;
+      case 'late': cmp = b.late - a.late; break;
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
+  // CSV header
+  const headers = ['Student', 'Team', 'Voltooid', 'Te laat', 'Voortgang %', 'Status'];
+  if (hasAttendance) headers.push('Aanwezigheid %');
+
+  const csvEscape = (val) => {
+    const str = String(val ?? '');
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return '"' + str.replace(/"/g, '""') + '"';
+    }
+    return str;
+  };
+
+  const statusLabels = {
+    voorloopt: 'Loopt voor',
+    op_schema: 'Op schema',
+    let_op: 'Let op',
+    achterloopt: 'Achterloopt',
+  };
+
+  const rows = filtered.map((s) => {
+    const team = getTeamNumber(s.name);
+    const row = [
+      csvEscape(s.name),
+      csvEscape(team ? `Team ${team}` : ''),
+      csvEscape(`${s.submitted}/${s.totalDue}`),
+      csvEscape(s.late),
+      csvEscape(s.submissionRate + '%'),
+      csvEscape(statusLabels[s.status] || s.status),
+    ];
+    if (hasAttendance) {
+      row.push(csvEscape(s.attendancePct !== null && s.attendancePct !== undefined ? s.attendancePct.toFixed(1) + '%' : ''));
+    }
+    return row.join(',');
+  });
+
+  // BOM for Excel UTF-8 compatibility
+  const bom = '\uFEFF';
+  const csv = bom + headers.join(',') + '\n' + rows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'studenten-overzicht.csv';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
 
 /* ===== Kick off ===== */
 loadData();

@@ -368,6 +368,14 @@ router.get('/students/:id', async (req, res) => {
   }
 });
 
+// POST /api/cache/clear — Clear server-side Canvas API cache so the next
+// request fetches fresh data from Canvas.
+router.post('/cache/clear', (req, res) => {
+  const client = getClient(req);
+  client.clearCache();
+  res.json({ cleared: true });
+});
+
 // GET /api/avatar?url=... — Proxy Canvas avatar images so the browser never needs
 // to load them directly (handles auth-protected or short-token URLs on canvas.hu.nl).
 router.get('/avatar', async (req, res) => {
