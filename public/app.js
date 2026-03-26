@@ -316,8 +316,11 @@ function buildStudentRow(s) {
   const localPhoto = getStudentPhoto(s.name);
   const remotePhoto = getProxiedAvatarUrl(s.avatarUrl);
   const photoSrc = localPhoto || remotePhoto;
+  const fallbackAttr = localPhoto && remotePhoto
+    ? ` data-fallback-src="${escHtml(remotePhoto)}"`
+    : '';
   const avatarInner = photoSrc
-    ? `<img src="${escHtml(photoSrc)}" alt="${inits}" loading="lazy" onerror="avatarFallback(this)">`
+    ? `<img src="${escHtml(photoSrc)}" alt="${inits}" loading="lazy"${fallbackAttr} onerror="avatarFallback(this)">`
     : inits;
 
   const pct = s.submissionRate;
@@ -394,8 +397,15 @@ function escHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-/* Safe fallback for avatar: replaces failed img with initials text */
+/* Safe fallback for avatar: tries Canvas avatar URL, then falls back to initials */
 function avatarFallback(el) {
+  const fallback = el.dataset.fallbackSrc;
+  if (fallback) {
+    // Try Canvas avatar before giving up
+    el.removeAttribute('data-fallback-src');
+    el.src = fallback;
+    return;
+  }
   const init = el.parentNode.dataset.init || '';
   el.parentNode.textContent = init;
 }
@@ -442,6 +452,10 @@ async function openStudentModal(studentId) {
     if (photoSrc) {
       avatarEl.src = photoSrc;
       avatarEl.style.display = '';
+      if (localPhoto && remotePhoto) {
+        avatarEl.dataset.fallbackSrc = remotePhoto;
+        avatarEl.onerror = function () { avatarFallback(this); };
+      }
     } else {
       avatarEl.src = '';
       avatarEl.style.display = 'none';
@@ -617,6 +631,10 @@ async function openPeilmomentModal(studentId) {
     if (photoSrc) {
       pmAvatar.src = photoSrc;
       pmAvatar.style.display = '';
+      if (localPhoto && remotePhoto) {
+        pmAvatar.dataset.fallbackSrc = remotePhoto;
+        pmAvatar.onerror = function () { avatarFallback(this); };
+      }
     } else {
       pmAvatar.src = '';
       pmAvatar.style.display = 'none';
