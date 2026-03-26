@@ -82,6 +82,12 @@ body {
   margin-top: 1px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 /* ===== Buttons ===== */
 .btn {
   display: inline-flex;
@@ -787,17 +793,69 @@ body {
 }
 
 /* ===== Responsive ===== */
+
+/* Tablets and below */
 @media (max-width: 768px) {
+  .header { padding: 0 1rem; }
   .header-inner { height: auto; padding: 0.75rem 0; flex-wrap: wrap; }
+  .header-title h1 { font-size: 1.15rem; }
+  .header-actions { width: 100%; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap; }
+
+  .main { padding: 1rem; }
   .stats-bar { grid-template-columns: repeat(3, 1fr); }
-  .toolbar { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
-  .student-table { font-size: 0.8rem; }
+  .toolbar { flex-direction: column; align-items: stretch; gap: 0.75rem; }
+  .filter-group, .sort-group { width: 100%; }
+  .filter-group select, .toolbar input[type="text"], .sort-group select { flex: 1; min-width: 0; }
+
+  .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .student-table { font-size: 0.8rem; min-width: 600px; }
   .student-table th:nth-child(5),
   .student-table td:nth-child(5) { display: none; }
+  .student-table th:nth-child(6),
+  .student-table td:nth-child(6) { display: none; }
+
   .modal-content { max-height: 95vh; }
+  .modal-header { padding: 1rem; }
+  .modal-stats { padding: 0.75rem 1rem; }
+  #modalContent { padding: 0.75rem 1rem 1rem; }
+  .pm-list { padding: 0.75rem 1rem 1rem; }
 }
 
+/* Small phones */
 @media (max-width: 520px) {
-  .stats-bar { grid-template-columns: repeat(2, 1fr); }
+  .header { padding: 0 0.75rem; }
+  .header-title h1 { font-size: 1rem; }
+  .header-icon { width: 24px; height: 24px; }
+  .course-name { font-size: 0.7rem; }
+  .header-actions .btn { padding: 0.4rem 0.6rem; font-size: 0.75rem; }
+  .last-updated { font-size: 0.65rem; }
+
+  .main { padding: 0.75rem; }
+  .stats-bar { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+
+  .toolbar { padding: 0.6rem 0.75rem; }
+
+  .student-table { min-width: 500px; }
+  .student-table th, .student-table td { padding: 0.5rem 0.6rem; }
+  .student-avatar { width: 36px; height: 36px; font-size: 0.75rem; }
+  .student-name-cell { gap: 0.5rem; }
   .progress-bar-bg { width: 50px; }
+  .pm1-wrap { min-width: 80px; }
+  .pm1-btn { font-size: 0.7rem; padding: 0.25rem 0.5rem; }
+  .detail-btn { font-size: 0.7rem; padding: 0.25rem 0.5rem; }
+
+  .modal { padding: 0.5rem; }
+  .modal-content { max-height: 98vh; border-radius: var(--radius); }
+  .modal-avatar { width: 40px; height: 40px; }
+  .modal-header h2 { font-size: 1rem; }
+  .modal-stats { gap: 0.5rem; }
+  .modal-stat { padding: 0.5rem; }
+  .modal-stat-value { font-size: 1.1rem; }
+
+  .assignment-item { padding: 0.6rem 0.75rem; gap: 0.5rem; }
+  .assignment-name { white-space: normal; }
+  .assignment-badge { font-size: 0.6rem; }
+
+  .pm-item { padding: 0.6rem 0.75rem; gap: 0.5rem; }
+  .pm-item-name { font-size: 0.8rem; }
 }

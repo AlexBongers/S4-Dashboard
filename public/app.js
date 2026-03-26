@@ -246,7 +246,9 @@ function shouldShowTeamGroups(filterTeam, filterStatus, searchQuery) {
 }
 
 /* ===== Table render ===== */
-function renderTable() {
+
+/* Shared filter + sort logic used by both renderTable() and exportCsv() */
+function getFilteredStudents() {
   const filterStatus = document.getElementById('filterStatus').value;
   const filterTeam = document.getElementById('filterTeam').value;
   const searchQuery = document.getElementById('searchInput').value.toLowerCase().trim();
@@ -291,6 +293,12 @@ function renderTable() {
     }
     return sortDir === 'asc' ? cmp : -cmp;
   });
+
+  return { filtered, filterStatus, filterTeam, searchQuery };
+}
+
+function renderTable() {
+  const { filtered, filterStatus, filterTeam, searchQuery } = getFilteredStudents();
 
   const tbody = document.getElementById('studentTableBody');
   const noResults = document.getElementById('noResults');
@@ -437,6 +445,24 @@ function avatarFallback(el) {
   el.parentNode.textContent = init;
 }
 
+/* Set up a modal avatar <img> element with photo fallback chain */
+function setupAvatarEl(imgEl, student) {
+  const localPhoto = getStudentPhoto(student.name);
+  const remotePhoto = getProxiedAvatarUrl(student.avatarUrl);
+  const photoSrc = localPhoto || remotePhoto;
+  if (photoSrc) {
+    imgEl.src = photoSrc;
+    imgEl.style.display = '';
+    if (localPhoto && remotePhoto) {
+      imgEl.dataset.fallbackSrc = remotePhoto;
+      imgEl.onerror = function () { avatarFallback(this); };
+    }
+  } else {
+    imgEl.src = '';
+    imgEl.style.display = 'none';
+  }
+}
+
 /* ===== Sort direction toggle ===== */
 function toggleSortDir() {
   sortDir = sortDir === 'asc' ? 'desc' : 'asc';
@@ -473,21 +499,7 @@ async function openStudentModal(studentId) {
   if (student) {
     const { label, cls } = statusConfig(student.status);
     document.getElementById('modalStudentStatus').innerHTML = `<span class="badge ${cls}">${label}</span>`;
-    const avatarEl = document.getElementById('modalAvatar');
-    const localPhoto = getStudentPhoto(student.name);
-    const remotePhoto = getProxiedAvatarUrl(student.avatarUrl);
-    const photoSrc = localPhoto || remotePhoto;
-    if (photoSrc) {
-      avatarEl.src = photoSrc;
-      avatarEl.style.display = '';
-      if (localPhoto && remotePhoto) {
-        avatarEl.dataset.fallbackSrc = remotePhoto;
-        avatarEl.onerror = function () { avatarFallback(this); };
-      }
-    } else {
-      avatarEl.src = '';
-      avatarEl.style.display = 'none';
-    }
+    setupAvatarEl(document.getElementById('modalAvatar'), student);
   }
 
   try {
@@ -654,22 +666,8 @@ async function openPeilmomentModal(studentId) {
   // Set student info from already-loaded data
   const student = allStudents.find((s) => s.id === studentId);
   document.getElementById('pmStudentName').textContent = student ? student.name : '';
-  const pmAvatar = document.getElementById('pmAvatar');
   if (student) {
-    const localPhoto = getStudentPhoto(student.name);
-    const remotePhoto = getProxiedAvatarUrl(student.avatarUrl);
-    const photoSrc = localPhoto || remotePhoto;
-    if (photoSrc) {
-      pmAvatar.src = photoSrc;
-      pmAvatar.style.display = '';
-      if (localPhoto && remotePhoto) {
-        pmAvatar.dataset.fallbackSrc = remotePhoto;
-        pmAvatar.onerror = function () { avatarFallback(this); };
-      }
-    } else {
-      pmAvatar.src = '';
-      pmAvatar.style.display = 'none';
-    }
+    setupAvatarEl(document.getElementById('pmAvatar'), student);
   }
 
   try {
@@ -831,31 +829,7 @@ function releaseFocus(modalEl) {
 
 /* ===== Export to CSV ===== */
 function exportCsv() {
-  const filterStatus = document.getElementById('filterStatus').value;
-  const filterTeam = document.getElementById('filterTeam').value;
-  const searchQuery = document.getElementById('searchInput').value.toLowerCase().trim();
-  const sortBy = document.getElementById('sortBy').value;
-
-  let filtered = allStudents.filter((s) => {
-    if (filterStatus !== 'all' && s.status !== filterStatus) return false;
-    if (filterTeam !== 'all') {
-      if (String(getTeamNumber(s.name)) !== filterTeam) return false;
-    }
-    if (searchQuery && !s.name.toLowerCase().includes(searchQuery)) return false;
-    return true;
-  });
-
-  filtered.sort((a, b) => {
-    let cmp = 0;
-    switch (sortBy) {
-      case 'name': cmp = a.sortableName.localeCompare(b.sortableName); break;
-      case 'pm1Status': cmp = pm1StatusOrder(a.peilmoment1Status) - pm1StatusOrder(b.peilmoment1Status); break;
-      case 'submissionRate': cmp = a.submissionRate - b.submissionRate; break;
-      case 'attendancePct': cmp = (a.attendancePct ?? -1) - (b.attendancePct ?? -1); break;
-      case 'late': cmp = b.late - a.late; break;
-    }
-    return sortDir === 'asc' ? cmp : -cmp;
-  });
+  const { filtered } = getFilteredStudents();
 
   // CSV header
   const headers = ['Student', 'Team', 'Voltooid', 'Te laat', 'Voortgang %', 'Status'];
