@@ -9,12 +9,16 @@ function getClient(req) {
   return req.app.locals.canvas;
 }
 
-// Peilmoment 1: the four specific assignments to track (matched case-insensitively)
+// Peilmoment 1: the assignments to track (matched case-insensitively)
 const PEILMOMENT1_ITEMS = [
   { key: 'logboek',           label: 'Logboek Professionele Vermogens', pattern: /logboek\s+professionele/i },
   { key: 'kennisassessment',  label: 'Kennisassessment 1',              pattern: /kennis\s*assess?ment\s*1/i },
   { key: 'plan',              label: 'Plan van aanpak',                 pattern: /plan\s+van\s+aanpak/i },
-  { key: 'sprintplanning',    label: 'Sprintplanning',                  pattern: /sprint/i },
+  { key: 'sprintplanning',    label: 'Sprintplanning',                  pattern: /sprintplanning/i },
+  { key: 'peilmoment1',       label: 'Peilmoment 1',                    pattern: /^peilmoment\s*1$/i },
+  { key: 'sprint2release',    label: 'Sprint 2 release',                pattern: /sprint\s*2\s*release/i },
+  { key: 'teamcontract',      label: 'Teamcontract',                    pattern: /teamcontract/i },
+  { key: 'teambranding',      label: 'Teambranding presentatie',        pattern: /teambranding/i },
 ];
 
 // Find the first Canvas assignment that looks like attendance tracking.
