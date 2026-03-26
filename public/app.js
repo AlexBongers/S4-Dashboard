@@ -619,10 +619,6 @@ function buildModalStats(student, assignments, attendancePct) {
       <span class="modal-stat-label">Voltooid</span>
     </div>
     <div class="modal-stat">
-      <span class="modal-stat-value" style="color: var(--red);">${missing}</span>
-      <span class="modal-stat-label">Ontbrekend</span>
-    </div>
-    <div class="modal-stat">
       <span class="modal-stat-value" style="color: var(--orange);">${late}</span>
       <span class="modal-stat-label">Te laat</span>
     </div>
@@ -630,12 +626,7 @@ function buildModalStats(student, assignments, attendancePct) {
       <span class="modal-stat-value" style="color: var(--blue);">${upcoming}</span>
       <span class="modal-stat-label">Aankomend</span>
     </div>
-    <div class="modal-stat">
-      <span class="modal-stat-value ${gradeClass(grade)}">${grade !== null && grade !== undefined ? grade.toFixed(1) + '%' : '—'}</span>
-      <span class="modal-stat-label">Huidig cijfer</span>
-    </div>
     ${attendanceStat}
-    ${lastActivityStat}
     ${lastSubmittedStat}
     ${trendStat}
     ${analyticsStat}
