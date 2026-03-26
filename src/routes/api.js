@@ -252,8 +252,9 @@ router.get('/overview', async (req, res) => {
         : 'red';
 
       // Submission trend: compare submissions in recent 2 weeks vs prior 2 weeks
-      const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-      const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
+      const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+      const twoWeeksAgo = new Date(now.getTime() - TWO_WEEKS_MS);
+      const fourWeeksAgo = new Date(now.getTime() - 2 * TWO_WEEKS_MS);
       let recentCount = 0;
       let priorCount = 0;
       Object.values(studentSubs).forEach((sub) => {
