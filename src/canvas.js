@@ -2,8 +2,8 @@
 
 const fetch = require('node-fetch');
 
-/** Default cache lifetime in milliseconds (5 minutes). */
-const CACHE_TTL_MS = 5 * 60 * 1000;
+/** Default cache lifetime in milliseconds (5 minutes), configurable via CANVAS_CACHE_TTL_SECONDS env var. */
+const CACHE_TTL_MS = (parseInt(process.env.CANVAS_CACHE_TTL_SECONDS, 10) || 300) * 1000;
 
 class CanvasClient {
   constructor({ apiToken, baseUrl, courseId }) {
