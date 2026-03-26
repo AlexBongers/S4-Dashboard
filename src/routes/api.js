@@ -9,6 +9,11 @@ function getClient(req) {
   return req.app.locals.canvas;
 }
 
+// Precomputed student detail cache — populated during /api/overview, consumed
+// by /api/students/:id so click-through modals are near-instant.
+let _studentDetailCache = {};
+
+
 // Peilmoment 1: the assignments to track.
 // Each item is matched by Canvas assignment ID first, then by regex pattern as fallback.
 const PEILMOMENT1_ITEMS = [
@@ -112,6 +117,94 @@ function findPm1Assignment(item, assignments) {
   return assignments.find((a) => item.pattern.test(a.name)) || null;
 }
 
+// Compute the detail view for a single student (shared by overview precompute
+// and the /api/students/:id endpoint).
+function computeStudentDetail(student, publishedAssignments, submissions, assignmentGroups, attendanceAssignment) {
+  const studentId = student.id;
+  const now = new Date();
+
+  const studentSubs = {};
+  submissions
+    .filter((s) => s.userId === studentId)
+    .forEach((s) => {
+      studentSubs[s.assignmentId] = s;
+    });
+
+  const groupLookup = {};
+  assignmentGroups.forEach((g) => { groupLookup[g.id] = g.name; });
+
+  const assignmentDetails = publishedAssignments.map((assignment) => {
+    const sub = studentSubs[assignment.id];
+    const isDue = !assignment.dueAt || new Date(assignment.dueAt) <= now;
+
+    let submissionStatus = 'not_due';
+    if (isDue) {
+      if (!sub || sub.workflowState === 'unsubmitted') {
+        submissionStatus = 'missing';
+      } else if (sub.excused) {
+        submissionStatus = 'excused';
+      } else if (sub.workflowState === 'graded') {
+        submissionStatus = sub.late ? 'graded_late' : 'graded';
+      } else if (sub.workflowState === 'submitted' || sub.workflowState === 'pending_review') {
+        submissionStatus = sub.late ? 'submitted_late' : 'submitted';
+      }
+    } else if (sub && sub.workflowState !== 'unsubmitted') {
+      submissionStatus = 'submitted_early';
+    }
+
+    return {
+      id: assignment.id,
+      name: assignment.name,
+      dueAt: assignment.dueAt,
+      pointsPossible: assignment.pointsPossible,
+      htmlUrl: assignment.htmlUrl,
+      speedGraderUrl: buildSpeedGraderUrl(assignment.htmlUrl, studentId),
+      assignmentGroupId: assignment.assignmentGroupId,
+      assignmentGroupName: groupLookup[assignment.assignmentGroupId] || null,
+      isDue,
+      submissionStatus,
+      score: sub ? sub.score : null,
+      grade: sub ? sub.grade : null,
+      submittedAt: sub ? sub.submittedAt : null,
+      late: sub ? sub.late : false,
+      missing: sub ? sub.missing : isDue,
+    };
+  });
+
+  const attendancePct = calcAttendancePct(studentSubs, attendanceAssignment);
+
+  const peilmoment1 = PEILMOMENT1_ITEMS.map((item) => {
+    const assignment = findPm1Assignment(item, publishedAssignments);
+    if (!assignment) {
+      return { key: item.key, label: item.label, found: false };
+    }
+    const detail = assignmentDetails.find((d) => d.id === assignment.id);
+    return {
+      key: item.key,
+      label: item.label,
+      found: true,
+      assignmentId: assignment.id,
+      assignmentName: assignment.name,
+      dueAt: assignment.dueAt,
+      pointsPossible: assignment.pointsPossible,
+      htmlUrl: assignment.htmlUrl,
+      speedGraderUrl: buildSpeedGraderUrl(assignment.htmlUrl, studentId),
+      submissionStatus: detail ? detail.submissionStatus : 'not_due',
+      score: detail ? detail.score : null,
+      grade: detail ? detail.grade : null,
+      submittedAt: detail ? detail.submittedAt : null,
+    };
+  });
+
+  return {
+    student,
+    assignments: assignmentDetails,
+    assignmentGroups,
+    attendancePct,
+    peilmoment1,
+  };
+}
+
 // GET /api/course - Course info
 router.get('/course', async (req, res) => {
   try {
@@ -128,11 +221,12 @@ router.get('/overview', async (req, res) => {
   try {
     const client = getClient(req);
 
-    const [students, assignments, submissions, analyticsSummaries] = await Promise.all([
+    const [students, assignments, submissions, analyticsSummaries, assignmentGroups] = await Promise.all([
       client.getStudents(),
       client.getAssignments(),
       client.getAllSubmissions(),
       client.getStudentSummaries(),
+      client.getAssignmentGroups(),
     ]);
 
     const now = new Date();
@@ -374,6 +468,14 @@ router.get('/overview', async (req, res) => {
     // Sort by sortable name
     overview.sort((a, b) => a.sortableName.localeCompare(b.sortableName));
 
+    // Precompute student details for all students so /api/students/:id is instant
+    _studentDetailCache = {};
+    for (const student of students) {
+      _studentDetailCache[student.id] = computeStudentDetail(
+        student, publishedAssignments, submissions, assignmentGroups, attendanceAssignment
+      );
+    }
+
     res.json({
       students: overview,
       assignmentCount: publishedAssignments.length,
@@ -389,8 +491,15 @@ router.get('/overview', async (req, res) => {
 // GET /api/students/:id - Detailed student view with per-assignment breakdown
 router.get('/students/:id', async (req, res) => {
   try {
-    const client = getClient(req);
     const studentId = parseInt(req.params.id, 10);
+
+    // Return precomputed result if available (populated by /api/overview)
+    if (_studentDetailCache[studentId]) {
+      return res.json(_studentDetailCache[studentId]);
+    }
+
+    // Fallback: compute on the fly (e.g. if overview hasn't been loaded yet)
+    const client = getClient(req);
 
     const [students, assignments, submissions, assignmentGroups] = await Promise.all([
       client.getStudents(),
@@ -405,92 +514,10 @@ router.get('/students/:id', async (req, res) => {
     }
 
     const publishedAssignments = assignments.filter((a) => a.published);
-    const now = new Date();
-
     const attendanceAssignment = findAttendanceAssignment(publishedAssignments);
 
-    const studentSubs = {};
-    submissions
-      .filter((s) => s.userId === studentId)
-      .forEach((s) => {
-        studentSubs[s.assignmentId] = s;
-      });
-
-    // Build assignment group lookup
-    const groupLookup = {};
-    assignmentGroups.forEach((g) => { groupLookup[g.id] = g.name; });
-
-    const assignmentDetails = publishedAssignments.map((assignment) => {
-      const sub = studentSubs[assignment.id];
-      const isDue = !assignment.dueAt || new Date(assignment.dueAt) <= now;
-
-      let submissionStatus = 'not_due';
-      if (isDue) {
-        if (!sub || sub.workflowState === 'unsubmitted') {
-          submissionStatus = 'missing';
-        } else if (sub.excused) {
-          submissionStatus = 'excused';
-        } else if (sub.workflowState === 'graded') {
-          submissionStatus = sub.late ? 'graded_late' : 'graded';
-        } else if (sub.workflowState === 'submitted' || sub.workflowState === 'pending_review') {
-          submissionStatus = sub.late ? 'submitted_late' : 'submitted';
-        }
-      } else if (sub && sub.workflowState !== 'unsubmitted') {
-        submissionStatus = 'submitted_early';
-      }
-
-      return {
-        id: assignment.id,
-        name: assignment.name,
-        dueAt: assignment.dueAt,
-        pointsPossible: assignment.pointsPossible,
-        htmlUrl: assignment.htmlUrl,
-        speedGraderUrl: buildSpeedGraderUrl(assignment.htmlUrl, studentId),
-        assignmentGroupId: assignment.assignmentGroupId,
-        assignmentGroupName: groupLookup[assignment.assignmentGroupId] || null,
-        isDue,
-        submissionStatus,
-        score: sub ? sub.score : null,
-        grade: sub ? sub.grade : null,
-        submittedAt: sub ? sub.submittedAt : null,
-        late: sub ? sub.late : false,
-        missing: sub ? sub.missing : isDue,
-      };
-    });
-
-    // --- Peilmoment 1 data ---
-    const attendancePct = calcAttendancePct(studentSubs, attendanceAssignment);
-
-    const peilmoment1 = PEILMOMENT1_ITEMS.map((item) => {
-      const assignment = findPm1Assignment(item, publishedAssignments);
-      if (!assignment) {
-        return { key: item.key, label: item.label, found: false };
-      }
-      const detail = assignmentDetails.find((d) => d.id === assignment.id);
-      return {
-        key: item.key,
-        label: item.label,
-        found: true,
-        assignmentId: assignment.id,
-        assignmentName: assignment.name,
-        dueAt: assignment.dueAt,
-        pointsPossible: assignment.pointsPossible,
-        htmlUrl: assignment.htmlUrl,
-        speedGraderUrl: buildSpeedGraderUrl(assignment.htmlUrl, studentId),
-        submissionStatus: detail ? detail.submissionStatus : 'not_due',
-        score: detail ? detail.score : null,
-        grade: detail ? detail.grade : null,
-        submittedAt: detail ? detail.submittedAt : null,
-      };
-    });
-
-    res.json({
-      student,
-      assignments: assignmentDetails,
-      assignmentGroups,
-      attendancePct,
-      peilmoment1,
-    });
+    const result = computeStudentDetail(student, publishedAssignments, submissions, assignmentGroups, attendanceAssignment);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -501,6 +528,7 @@ router.get('/students/:id', async (req, res) => {
 router.post('/cache/clear', (req, res) => {
   const client = getClient(req);
   client.clearCache();
+  _studentDetailCache = {};
   res.json({ cleared: true });
 });
 

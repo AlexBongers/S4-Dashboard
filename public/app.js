@@ -82,6 +82,10 @@ let hasAttendance = false;
 let sortDir = 'asc';
 let lastUpdatedTime = null;
 
+/* Client-side cache for /api/students/:id responses — avoids repeat network
+   calls when re-opening the same student modal. Cleared on manual refresh. */
+const studentDetailCache = new Map();
+
 /* ===== Helpers ===== */
 function initials(name) {
   return normalizeName(name)
@@ -171,6 +175,7 @@ async function loadData() {
   try {
     // Clear server-side cache so we get fresh Canvas data
     await fetch('/api/cache/clear', { method: 'POST' }).catch(() => {});
+    studentDetailCache.clear();
 
     // Load course name and overview in parallel
     const [courseRes, overviewRes] = await Promise.all([
@@ -521,7 +526,6 @@ async function openStudentModal(studentId) {
   modal.classList.remove('hidden');
   modalLoading.classList.remove('hidden');
   modalContent.classList.add('hidden');
-  modalStats.innerHTML = '';
   trapFocus(modal);
 
   // Set basic info from already-loaded data
@@ -532,17 +536,26 @@ async function openStudentModal(studentId) {
     const { label, cls } = statusConfig(student.status);
     document.getElementById('modalStudentStatus').innerHTML = `<span class="badge ${cls}">${label}</span>`;
     setupAvatarEl(document.getElementById('modalAvatar'), student);
+    // Show stats immediately from overview data (Option 5: optimistic rendering)
+    modalStats.innerHTML = buildModalStatsPreview(student);
+  } else {
+    modalStats.innerHTML = '';
   }
 
   try {
-    const res = await fetch(`/api/students/${studentId}`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Fout bij ophalen studentdetails');
+    // Check client-side cache first (Option 4)
+    let data = studentDetailCache.get(studentId);
+    if (!data) {
+      const res = await fetch(`/api/students/${studentId}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Fout bij ophalen studentdetails');
+      }
+      data = await res.json();
+      studentDetailCache.set(studentId, data);
     }
-    const data = await res.json();
 
-    // Render modal stats
+    // Render modal stats (full version from API data)
     const st = student || {};
     modalStats.innerHTML = buildModalStats(st, data.assignments, data.attendancePct);
 
@@ -555,6 +568,72 @@ async function openStudentModal(studentId) {
   } catch (err) {
     modalLoading.innerHTML = `<p style="color: var(--red);">Fout: ${escHtml(err.message)}</p>`;
   }
+}
+
+/* Build modal stats preview using data already available from the overview
+   endpoint — shown immediately so the user sees meaningful info while the
+   assignment list loads in the background. */
+function buildModalStatsPreview(student) {
+  const attendanceStat = (hasAttendance)
+    ? `<div class="modal-stat">
+        <span class="modal-stat-value ${gradeClass(student.attendancePct)}">${student.attendancePct !== null && student.attendancePct !== undefined ? student.attendancePct.toFixed(1) + '%' : '—'}</span>
+        <span class="modal-stat-label">Aanwezigheid</span>
+      </div>`
+    : '';
+
+  const lastActivityText = formatRelativeTime(student.lastActivityAt);
+  const lastActivityDays = student.lastActivityAt
+    ? Math.floor((Date.now() - new Date(student.lastActivityAt).getTime()) / (1000 * 60 * 60 * 24))
+    : null;
+  const lastActivityCls = lastActivityDays !== null && lastActivityDays >= 5 ? 'style="color: var(--red);"' : '';
+  const lastActivityStat = `<div class="modal-stat">
+      <span class="modal-stat-value" ${lastActivityCls}>${lastActivityText || '—'}</span>
+      <span class="modal-stat-label">Laatst actief</span>
+    </div>`;
+
+  const lastSubmittedText = student.lastSubmittedAt ? formatDateShort(student.lastSubmittedAt) : '—';
+  const lastSubmittedStat = `<div class="modal-stat">
+      <span class="modal-stat-value">${lastSubmittedText}</span>
+      <span class="modal-stat-label">Laatste inlevering</span>
+    </div>`;
+
+  const trendLabel = student.trend === 'up' ? '↑ Stijgend' : student.trend === 'down' ? '↓ Dalend' : '→ Stabiel';
+  const trendColor = student.trend === 'up' ? 'color: var(--green);' : student.trend === 'down' ? 'color: var(--red);' : 'color: var(--gray-500);';
+  const trendStat = `<div class="modal-stat">
+      <span class="modal-stat-value" style="${trendColor}">${trendLabel}</span>
+      <span class="modal-stat-label">Momentum</span>
+    </div>`;
+
+  let analyticsStat = '';
+  if (student.pageViews !== null && student.pageViews !== undefined) {
+    analyticsStat = `<div class="modal-stat">
+        <span class="modal-stat-value">${student.pageViews}</span>
+        <span class="modal-stat-label">Paginaweergaven</span>
+      </div>
+      <div class="modal-stat">
+        <span class="modal-stat-value">${student.participations ?? '—'}</span>
+        <span class="modal-stat-label">Participatie</span>
+      </div>`;
+  }
+
+  return `
+    <div class="modal-stat">
+      <span class="modal-stat-value">${student.submitted}/${student.totalDue}</span>
+      <span class="modal-stat-label">Voltooid</span>
+    </div>
+    <div class="modal-stat">
+      <span class="modal-stat-value" style="color: var(--orange);">${student.late}</span>
+      <span class="modal-stat-label">Te laat</span>
+    </div>
+    <div class="modal-stat">
+      <span class="modal-stat-value" style="color: var(--blue);">${student.upcomingCount}</span>
+      <span class="modal-stat-label">Aankomend</span>
+    </div>
+    ${attendanceStat}
+    ${lastSubmittedStat}
+    ${trendStat}
+    ${analyticsStat}
+  `;
 }
 
 function buildModalStats(student, assignments, attendancePct) {
@@ -792,12 +871,17 @@ async function openPeilmomentModal(studentId) {
   }
 
   try {
-    const res = await fetch(`/api/students/${studentId}`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Fout bij ophalen peilmoment gegevens');
+    // Check client-side cache first (Option 4)
+    let data = studentDetailCache.get(studentId);
+    if (!data) {
+      const res = await fetch(`/api/students/${studentId}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Fout bij ophalen peilmoment gegevens');
+      }
+      data = await res.json();
+      studentDetailCache.set(studentId, data);
     }
-    const data = await res.json();
 
     document.getElementById('pmList').innerHTML = buildPeilmomentContent(data.peilmoment1, data.attendancePct);
 
