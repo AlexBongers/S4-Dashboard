@@ -1,0 +1,30 @@
+# Render.com Blueprint — https://render.com/docs/blueprint-spec
+#
+# Deploy stappen:
+#  1. Push deze repository naar GitHub
+#  2. Ga naar https://dashboard.render.com → New → Blueprint
+#  3. Selecteer deze repository
+#  4. Render detecteert render.yaml automatisch
+#  5. Vul de drie Canvas omgevingsvariabelen in (zie hieronder)
+#  6. Klik op "Apply" — de service start vanzelf
+
+services:
+  - type: web
+    name: s4-dashboard
+    runtime: node
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Vul onderstaande waarden in via het Render Environment-dashboard.
+      # Kopieer de waarden uit je canvas.env.example bestand.
+      - key: CANVAS_API_TOKEN
+        sync: false   # waarde invullen in Render dashboard, niet opslaan in YAML
+      - key: CANVAS_BASE_URL
+        sync: false
+      - key: CANVAS_COURSE_ID
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false   # wachtwoord voor HTTP Basic Auth op het dashboard
