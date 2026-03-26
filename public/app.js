@@ -16,11 +16,10 @@ const TEAMS = [
   ]},
 ];
 
-/* Map each student name to their local photo path in public/photos/ */
+/* Map each student name to their local photo path in public/photos/
+   Only students with an actual photo file on disk are listed here. */
 const STUDENT_PHOTOS = {
-  'Marouane Massoudi':  '/photos/marouane-massoudi.jpg',
   'Taoufik Amghar':     '/photos/taoufik-amghar.jpg',
-  'Souhail Abbou':      '/photos/souhail-abbou.jpg',
   'Kaan Akgürbüz':      '/photos/kaan-akgurbuz.jpg',
   'Mats Krook':         '/photos/mats-krook.jpg',
   'Imran El Mahdadi':   '/photos/imran-el-mahdadi.jpg',
@@ -32,23 +31,32 @@ const STUDENT_PHOTOS = {
   'Imran El Madkouri':  '/photos/imran-el-madkouri.jpg',
   'Jos van der Kroon':  '/photos/jos-van-der-kroon.jpg',
   'Ilias Mahdad':       '/photos/ilias-mahdad.jpg',
-  'Anass Arazouk':      '/photos/anass-arazouk.jpg',
   'Vita Meynen':        '/photos/vita-meynen.jpg',
-  'Jason Tomeij':       '/photos/jason-tomeij.jpg',
   'Abdualah Salha':     '/photos/abdualah-salha.jpg',
   'Huy Vuong':          '/photos/huy-vuong.jpg',
   'Joanna Peters':      '/photos/joanna-peters.jpg',
   'Ahmetcan Akın':      '/photos/ahmetcan-akin.jpg',
 };
 
+/* Build a case-insensitive lookup for STUDENT_PHOTOS */
+const STUDENT_PHOTOS_LC = Object.fromEntries(
+  Object.entries(STUDENT_PHOTOS).map(([k, v]) => [k.toLowerCase(), v])
+);
+
 /* Strip student number suffix (e.g. " (1886007)") from Canvas display names */
 function normalizeName(name) {
   return name.replace(/\s*\(\d+\)\s*$/, '').trim();
 }
 
-/* Return the photo path for a student, handling Canvas names with student IDs */
+/* Return the photo path for a student, handling Canvas names with student IDs
+   and case differences */
 function getStudentPhoto(name) {
-  return STUDENT_PHOTOS[name] || STUDENT_PHOTOS[normalizeName(name)] || null;
+  const norm = normalizeName(name);
+  return STUDENT_PHOTOS[name]
+    || STUDENT_PHOTOS[norm]
+    || STUDENT_PHOTOS_LC[name.toLowerCase()]
+    || STUDENT_PHOTOS_LC[norm.toLowerCase()]
+    || null;
 }
 
 /* Return a proxied avatar URL for Canvas images, or null if unavailable/default */
