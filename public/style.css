@@ -860,6 +860,117 @@ body {
   transition: width 0.4s ease;
 }
 
+/* ===== Group contribution panel ===== */
+
+/* Allow the assignment item to wrap so the contrib panel can span a full row */
+.assignment-item-group,
+.pm-item-group {
+  flex-wrap: wrap;
+}
+
+.contrib-toggle {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius);
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+  color: var(--gray-600, var(--gray-700));
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.contrib-toggle:hover { border-color: var(--primary); color: var(--primary); }
+.contrib-toggle:disabled { opacity: 0.5; cursor: default; }
+
+.contrib-panel {
+  flex: 0 0 100%;
+  margin-top: 0.5rem;
+}
+.contrib-panel.hidden { display: none; }
+
+.contrib-section {
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+}
+
+.contrib-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.6rem;
+}
+
+.contrib-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+.contrib-row:last-child { margin-bottom: 0; }
+
+.contrib-name {
+  font-size: 0.8rem;
+  color: var(--gray-900);
+  width: 130px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contrib-bar-bg {
+  flex: 1;
+  height: 8px;
+  background: var(--gray-200);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.contrib-bar-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.contrib-pct {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--gray-900);
+  width: 38px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.contrib-detail {
+  font-size: 0.75rem;
+  color: var(--gray-500);
+  flex-shrink: 0;
+  width: 70px;
+}
+
+.contrib-unmatched {
+  font-size: 0.75rem;
+  color: var(--gray-500);
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+}
+
+.contrib-none,
+.contrib-error {
+  font-size: 0.8rem;
+  color: var(--gray-500);
+  font-style: italic;
+  margin: 0;
+  padding: 0.4rem 0;
+}
+.contrib-error { color: var(--red); }
+
 /* ===== Responsive ===== */
 
 /* Tablets and below */

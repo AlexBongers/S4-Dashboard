@@ -133,6 +133,7 @@ class CanvasClient {
       submissionTypes: a.submission_types,
       htmlUrl: a.html_url,
       assignmentGroupId: a.assignment_group_id,
+      groupCategoryId: a.group_category_id || null,
     }));
     this._cacheSet(cacheKey, result);
     return result;
@@ -221,6 +222,57 @@ class CanvasClient {
       // Analytics API may not be available for all courses
       return {};
     }
+  }
+  /**
+   * Fetch submissions for a specific assignment and return the first DOCX
+   * attachment found. Returns null if no DOCX attachment exists.
+   * Results are cached with the normal TTL.
+   */
+  async getGroupSubmissionDocx(assignmentId) {
+    const cacheKey = `group_docx_${this.courseId}_${assignmentId}`;
+    const cached = this._cacheGet(cacheKey);
+    // Use a wrapper so we can cache a null result without confusing it with
+    // "not in cache" (which also returns null from _cacheGet).
+    if (cached) return cached.attachment;
+
+    let attachment = null;
+    try {
+      const submissions = await this._get(
+        `/courses/${this.courseId}/assignments/${assignmentId}/submissions`,
+        { student_ids: ['all'], include: ['attachment'], per_page: 100 }
+      );
+
+      for (const s of submissions) {
+        if (!Array.isArray(s.attachments) || s.attachments.length === 0) continue;
+        const docx = s.attachments.find(
+          (a) =>
+            (a.content_type &&
+              a.content_type.includes('wordprocessingml')) ||
+            (a.filename && a.filename.toLowerCase().endsWith('.docx'))
+        );
+        if (docx) {
+          attachment = docx;
+          break;
+        }
+      }
+    } catch {
+      // If the submissions endpoint fails, treat as no attachment
+    }
+
+    this._cacheSet(cacheKey, { attachment });
+    return attachment;
+  }
+
+  /**
+   * Download a Canvas file URL (authenticated) and return a Buffer.
+   */
+  async downloadFileBuffer(url) {
+    const response = await fetch(url, { headers: this.headers });
+    if (!response.ok) {
+      throw new Error(`Canvas file download failed: ${response.status}`);
+    }
+    const arrayBuf = await response.buffer();
+    return arrayBuf;
   }
 }
 

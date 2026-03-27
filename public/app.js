@@ -747,8 +747,16 @@ function buildAssignmentItem(a) {
     ? `<a href="${escHtml(linkUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(a.name)}</a>`
     : escHtml(a.name);
 
+  // For group assignments add a lazy-load contributions toggle
+  const contribToggle = a.isGroupAssignment
+    ? `<button class="contrib-toggle" onclick="loadGroupContributions(this, ${a.id})" title="Laad bijdragen vanuit versiegeschiednis">👥 Bijdragen</button>`
+    : '';
+  const contribPanel = a.isGroupAssignment
+    ? `<div class="contrib-panel hidden" id="contrib-${a.id}"></div>`
+    : '';
+
   return `
-    <div class="assignment-item">
+    <div class="assignment-item${a.isGroupAssignment ? ' assignment-item-group' : ''}">
       <div class="assignment-status-dot ${statusInfo.dotCls}" title="${statusInfo.label}"></div>
       <div class="assignment-info">
         <div class="assignment-name">${nameHtml}</div>
@@ -756,6 +764,8 @@ function buildAssignmentItem(a) {
       </div>
       ${scoreText ? `<div class="assignment-score">${scoreText}</div>` : ''}
       <span class="assignment-badge badge ${statusInfo.badgeCls}">${statusInfo.label}</span>
+      ${contribToggle}
+      ${contribPanel}
     </div>
   `;
 }
@@ -813,6 +823,128 @@ function buildGroupedAssignmentList(assignments, assignmentGroups) {
       </div>
     `;
   }).join('');
+}
+
+/* ===== Group contribution loader ===== */
+
+/**
+ * Toggle and lazy-load the versiegeschiednis contribution panel for a group
+ * assignment. `btn` is the button element that was clicked; `assignmentId` is
+ * the Canvas assignment ID.
+ */
+async function loadGroupContributions(btn, assignmentId) {
+  const panel = document.getElementById(`contrib-${assignmentId}`);
+  if (!panel) return;
+
+  // Toggle: if already populated just show/hide
+  if (!panel.classList.contains('hidden') && panel.dataset.loaded) {
+    panel.classList.add('hidden');
+    btn.textContent = '👥 Bijdragen';
+    return;
+  }
+  if (panel.dataset.loaded) {
+    panel.classList.remove('hidden');
+    btn.textContent = '👥 Verberg';
+    return;
+  }
+
+  // First load: fetch from API
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const res = await fetch(`/api/doc-contributions/${assignmentId}`);
+    if (!res.ok) throw new Error('Ophalen mislukt');
+    const data = await res.json();
+    panel.innerHTML = renderContributions(data);
+    panel.dataset.loaded = '1';
+    panel.classList.remove('hidden');
+    btn.textContent = '👥 Verberg';
+  } catch (err) {
+    panel.innerHTML = `<p class="contrib-error">Fout: ${escHtml(err.message)}</p>`;
+    panel.dataset.loaded = '1';
+    panel.classList.remove('hidden');
+    btn.textContent = '👥 Verberg';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/**
+ * Same as loadGroupContributions but targets the PM1 modal's contrib panel
+ * (prefixed "pm-contrib-" to avoid ID clashes with the student detail modal).
+ */
+async function loadPmContributions(btn, assignmentId) {
+  const panel = document.getElementById(`pm-contrib-${assignmentId}`);
+  if (!panel) return;
+
+  if (!panel.classList.contains('hidden') && panel.dataset.loaded) {
+    panel.classList.add('hidden');
+    btn.textContent = '👥 Bijdragen';
+    return;
+  }
+  if (panel.dataset.loaded) {
+    panel.classList.remove('hidden');
+    btn.textContent = '👥 Verberg';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const res = await fetch(`/api/doc-contributions/${assignmentId}`);
+    if (!res.ok) throw new Error('Ophalen mislukt');
+    const data = await res.json();
+    panel.innerHTML = renderContributions(data);
+    panel.dataset.loaded = '1';
+    panel.classList.remove('hidden');
+    btn.textContent = '👥 Verberg';
+  } catch (err) {
+    panel.innerHTML = `<p class="contrib-error">Fout: ${escHtml(err.message)}</p>`;
+    panel.dataset.loaded = '1';
+    panel.classList.remove('hidden');
+    btn.textContent = '👥 Verberg';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/**
+ * Render contribution data (from /api/doc-contributions) as an HTML string.
+ */
+function renderContributions(data) {
+  if (!data || !data.contributions || !data.contributions.items || data.contributions.items.length === 0) {
+    return `<p class="contrib-none">Geen versiegeschiednis gevonden in de ingeleverde document(en).</p>`;
+  }
+
+  const { items, totalEntries, unmatched } = data.contributions;
+  const maxEntries = items[0] ? items[0].entries : 1;
+
+  const bars = items.map((item) => {
+    const pct = Math.round((item.entries / Math.max(totalEntries, 1)) * 100);
+    const barWidth = Math.round((item.entries / Math.max(maxEntries, 1)) * 100);
+    return `
+      <div class="contrib-row">
+        <span class="contrib-name">${escHtml(item.name)}</span>
+        <div class="contrib-bar-bg">
+          <div class="contrib-bar-fill" style="width:${barWidth}%"></div>
+        </div>
+        <span class="contrib-pct">${pct}%</span>
+        <span class="contrib-detail">${item.entries} versie${item.entries !== 1 ? 's' : ''}</span>
+      </div>
+    `;
+  }).join('');
+
+  const unmatchedNote = unmatched > 0
+    ? `<p class="contrib-unmatched">${unmatched} versie-entr${unmatched !== 1 ? 'ies' : 'y'} niet herleidbaar naar een student.</p>`
+    : '';
+
+  return `
+    <div class="contrib-section">
+      <div class="contrib-header">Versiegeschiednis bijdragen (${totalEntries} versie${totalEntries !== 1 ? 's' : ''})</div>
+      ${bars}
+      ${unmatchedNote}
+    </div>
+  `;
 }
 
 function assignmentStatusInfo(status) {
@@ -925,8 +1057,17 @@ function buildPeilmomentContent(peilmoment1, attendancePct) {
       ? `<a href="${escHtml(linkUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(item.assignmentName || item.label)}</a>`
       : escHtml(item.assignmentName || item.label);
 
+    // For group assignments add a lazy-load contributions toggle (uses a unique
+    // panel ID prefixed with "pm-contrib-" to avoid collisions with the detail modal)
+    const pmContribToggle = item.isGroupAssignment
+      ? `<button class="contrib-toggle" onclick="loadPmContributions(this, ${item.assignmentId})" title="Laad bijdragen vanuit versiegeschiednis">👥 Bijdragen</button>`
+      : '';
+    const pmContribPanel = item.isGroupAssignment
+      ? `<div class="contrib-panel hidden" id="pm-contrib-${item.assignmentId}"></div>`
+      : '';
+
     return `
-      <div class="pm-item">
+      <div class="pm-item${item.isGroupAssignment ? ' pm-item-group' : ''}">
         <div class="assignment-status-dot ${si.dotCls}" title="${si.label}"></div>
         <div class="pm-item-info">
           <div class="pm-item-name">${nameHtml}</div>
@@ -935,6 +1076,8 @@ function buildPeilmomentContent(peilmoment1, attendancePct) {
         </div>
         ${scoreText ? `<div class="assignment-score">${scoreText}</div>` : ''}
         <span class="assignment-badge badge ${si.badgeCls}">${si.label}</span>
+        ${pmContribToggle}
+        ${pmContribPanel}
       </div>
     `;
   });

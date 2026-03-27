@@ -2,6 +2,7 @@
 
 const express = require('express');
 const fetch = require('node-fetch');
+const { parseVersiegeschiedenis, computeContributions } = require('../docParser');
 
 const router = express.Router();
 
@@ -12,6 +13,10 @@ function getClient(req) {
 // Precomputed student detail cache — populated during /api/overview, consumed
 // by /api/students/:id so click-through modals are near-instant.
 let _studentDetailCache = {};
+
+// Parsed versiegeschiednis contribution cache — keyed by assignment ID.
+// Entries are { contributions } objects (contributions may be null if no table found).
+let _contributionsCache = {};
 
 
 // Peilmoment 1: the assignments to track.
@@ -160,6 +165,7 @@ function computeStudentDetail(student, publishedAssignments, submissions, assign
       speedGraderUrl: buildSpeedGraderUrl(assignment.htmlUrl, studentId),
       assignmentGroupId: assignment.assignmentGroupId,
       assignmentGroupName: groupLookup[assignment.assignmentGroupId] || null,
+      isGroupAssignment: assignment.groupCategoryId !== null && assignment.groupCategoryId !== undefined,
       isDue,
       submissionStatus,
       score: sub ? sub.score : null,
@@ -188,6 +194,7 @@ function computeStudentDetail(student, publishedAssignments, submissions, assign
       pointsPossible: assignment.pointsPossible,
       htmlUrl: assignment.htmlUrl,
       speedGraderUrl: buildSpeedGraderUrl(assignment.htmlUrl, studentId),
+      isGroupAssignment: assignment.groupCategoryId !== null && assignment.groupCategoryId !== undefined,
       submissionStatus: detail ? detail.submissionStatus : 'not_due',
       score: detail ? detail.score : null,
       grade: detail ? detail.grade : null,
@@ -528,7 +535,56 @@ router.post('/cache/clear', (req, res) => {
   const client = getClient(req);
   client.clearCache();
   _studentDetailCache = {};
+  _contributionsCache = {};
   res.json({ cleared: true });
+});
+
+// GET /api/doc-contributions/:assignmentId — Parse the versiegeschiednis table
+// from the group submission DOCX for an assignment and return per-student
+// contribution metrics. Returns { contributions: null } if the assignment has
+// no DOCX submission or no recognisable versiegeschiednis table.
+router.get('/doc-contributions/:assignmentId', async (req, res) => {
+  const assignmentId = parseInt(req.params.assignmentId, 10);
+  if (!Number.isFinite(assignmentId)) return res.status(400).json({ error: 'Invalid assignment ID' });
+
+  // Return cached result if available
+  if (_contributionsCache[assignmentId] !== undefined) {
+    return res.json(_contributionsCache[assignmentId]);
+  }
+
+  try {
+    const client = getClient(req);
+
+    // Find the first DOCX attachment for this assignment's group submissions
+    const attachment = await client.getGroupSubmissionDocx(assignmentId);
+    if (!attachment) {
+      const result = { contributions: null };
+      _contributionsCache[assignmentId] = result;
+      return res.json(result);
+    }
+
+    // Download the DOCX file
+    const buffer = await client.downloadFileBuffer(attachment.url);
+
+    // Parse the versiegeschiednis table
+    const entries = await parseVersiegeschiedenis(buffer);
+    if (!entries || entries.length === 0) {
+      const result = { contributions: null };
+      _contributionsCache[assignmentId] = result;
+      return res.json(result);
+    }
+
+    // Match author names against all known Canvas students
+    const students = await client.getStudents();
+    const studentNames = students.map((s) => s.name);
+    const contributions = computeContributions(entries, studentNames);
+
+    const result = { contributions };
+    _contributionsCache[assignmentId] = result;
+    return res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // GET /api/avatar?url=... — Proxy Canvas avatar images so the browser never needs
