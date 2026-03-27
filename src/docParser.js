@@ -89,9 +89,9 @@ function findAuthorColumn(headerRow) {
     /geschreven\s+door/i,
     /gemaakt\s+door/i,      // Dutch: made by (common in student/corporate templates)
     /opgesteld\s+door/i,    // Dutch: compiled by
-    /gemaakt/i,             // fallback for standalone "gemaakt" header cells
+    /^gemaakt$/i,           // standalone "gemaakt" header cell (exact match to avoid false positives)
     /opsteller/i,           // Dutch: originator / author (common in corporate templates)
-    /naam/i,
+    /^naam$/i,              // standalone "naam" header (exact match to avoid matching "naam" in data cells)
     /student/i,
     /bijdrager/i,           // contributor
     /persoon/i,             // person
@@ -106,6 +106,14 @@ function findAuthorColumn(headerRow) {
     /eigenaar/i,            // Dutch: owner
     /schrijver/i,           // Dutch: writer
     /redacteur/i,           // Dutch: editor
+    /toegewezen(\s+aan)?/i, // Dutch: assigned (to) — common in sprint planning docs
+    /teamlid/i,             // Dutch: team member
+    /groepslid/i,           // Dutch: group member
+    /uitvoerder/i,          // Dutch: executor
+    /uitgevoerd\s+door/i,   // Dutch: performed by
+    /assigned\s+to/i,       // English: assigned to
+    /^owner$/i,             // English: owner (exact match)
+    /^lid$/i,               // Dutch: member (exact match to avoid false positives)
   ];
   for (let i = 0; i < headerRow.length; i++) {
     if (candidates.some((re) => re.test(headerRow[i]))) return i;
@@ -141,12 +149,16 @@ function findDescriptionColumn(headerRow) {
     /samenvatting/i,        // Dutch: summary
     /werkzaamheden/i,       // Dutch: activities / work performed
     /uitgevoerd/i,          // Dutch: performed
+    /bijdrage/i,            // Dutch: contribution
+    /^taken$/i,             // Dutch: tasks (plural)
+    /^status$/i,            // status (common in sprint planning tables)
+    /resultaat/i,           // Dutch: result
   ];
   for (let i = 0; i < headerRow.length; i++) {
     if (candidates.some((re) => re.test(headerRow[i]))) return i;
   }
-  // Fallback: last column if there are ≥3 columns
-  return headerRow.length >= 3 ? headerRow.length - 1 : -1;
+  // Fallback: last column if there are ≥2 columns
+  return headerRow.length >= 2 ? headerRow.length - 1 : -1;
 }
 
 /**
@@ -162,13 +174,15 @@ function findDescriptionColumn(headerRow) {
 function findVersionTableHeader(rows) {
   if (rows.length < 2) return -1;
 
-  // First pass: strict match — require author AND (version OR date) column
+  // First pass: strict match — require author AND (version OR date OR sprint/taak) column
   for (let rowIndex = 0; rowIndex < Math.min(10, rows.length - 1); rowIndex++) {
     const row = rows[rowIndex];
     const hasAuthorCol = findAuthorColumn(row) !== -1;
     const hasVersionCol = row.some((c) => /versie|version|v\.\s*\d|^v$/i.test(c));
-    const hasDatumCol = row.some((c) => /datum|date/i.test(c));
-    if (hasAuthorCol && (hasVersionCol || hasDatumCol)) return rowIndex;
+    const hasDatumCol = row.some((c) => /datum|date|deadline/i.test(c));
+    const hasSprintCol = row.some((c) => /^sprint$/i.test(c));
+    const hasTaskCol = row.some((c) => /^taak$|^task$|user\s*stor/i.test(c));
+    if (hasAuthorCol && (hasVersionCol || hasDatumCol || hasSprintCol || hasTaskCol)) return rowIndex;
   }
 
   // Second pass: lenient match — require only author column, but the table
@@ -202,13 +216,13 @@ function findVersionTableHeader(rows) {
 }
 
 /**
- * Check whether a table might be a version history table by scanning
- * the full text content of the table for version-related keywords.
- * Returns true if the table likely contains version history data.
+ * Check whether a table might be a version history or contribution table by
+ * scanning the full text content of the table for relevant keywords.
+ * Returns true if the table likely contains version history or task/contribution data.
  */
 function tableContainsVersionKeywords(rows) {
   const text = rows.map((r) => r.join(' ')).join(' ').toLowerCase();
-  return /versie\s*geschied|version\s*hist|wijzigings?\s*(log|geschied|overzicht)/i.test(text);
+  return /versie\s*geschied|version\s*hist|wijzigings?\s*(log|geschied|overzicht)|sprint\s*planning|sprint\s*backlog|taken\s*verdel|bijdrage|contributie|taakverdelingen/i.test(text);
 }
 
 /**
@@ -344,9 +358,18 @@ function parseTablesFromHtml(html) {
     if (entries && entries.length > 0) return entries;
   }
 
-  // Fallback: if any table contains version-related keywords, try harder
+  // Fallback 1: if any table contains version/planning keywords, try harder
   for (const table of tables) {
     if (!tableContainsVersionKeywords(table)) continue;
+    const entries = tryParseVersionTableLenient(table);
+    if (entries && entries.length > 0) return entries;
+  }
+
+  // Fallback 2: try lenient parsing on ALL tables with at least 3 rows.
+  // This catches contribution/task tables that don't contain version keywords
+  // but still have recognisable name-like columns (e.g. sprint planning docs).
+  for (const table of tables) {
+    if (table.length < 3) continue;
     const entries = tryParseVersionTableLenient(table);
     if (entries && entries.length > 0) return entries;
   }
@@ -387,7 +410,8 @@ function tryParseVersionTable(table) {
  * Lenient version table parser: used when the table contains version keywords
  * but no recognized header was found. Tries to identify the author column by
  * checking which column has the most "name-like" cell values (capitalized
- * words, 2-3 words per cell).
+ * words, 1-4 words per cell, tolerating lowercase Dutch particles like
+ * "de", "van", "den", "het").
  */
 function tryParseVersionTableLenient(table) {
   if (table.length < 2) return null;
@@ -396,15 +420,23 @@ function tryParseVersionTableLenient(table) {
   const numCols = Math.max(...table.map((r) => r.length));
   const colScores = new Array(numCols).fill(0);
 
+  // Common Dutch name particles that are lowercase in multi-word names
+  const particles = new Set(['de', 'van', 'den', 'het', 'der', 'ten', 'ter', 'op', 'in']);
+
   for (let col = 0; col < numCols; col++) {
     for (let row = 1; row < table.length; row++) {
       const cell = (table[row][col] || '').trim();
       if (!cell) continue;
       const words = cell.split(/\s+/);
-      // Name-like: 1-4 words, each starting with uppercase or all lowercase
+      // Name-like: 1-4 words, each starting with uppercase (or is a lowercase
+      // particle like "de", "van" common in Dutch surnames)
       if (words.length >= 1 && words.length <= 4) {
-        const allNameLike = words.every((w) => /^[A-Z\u00C0-\u024F]/.test(w) && w.length >= 2);
-        if (allNameLike) colScores[col]++;
+        const allNameLike = words.every(
+          (w) => (/^[A-Z\u00C0-\u024F]/.test(w) && w.length >= 2) || particles.has(w.toLowerCase())
+        );
+        // At least one word must be capitalized (not all particles)
+        const hasCapitalized = words.some((w) => /^[A-Z\u00C0-\u024F]/.test(w) && w.length >= 2);
+        if (allNameLike && hasCapitalized) colScores[col]++;
       }
     }
   }
