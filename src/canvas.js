@@ -265,13 +265,33 @@ class CanvasClient {
 
   /**
    * Download a Canvas file URL (authenticated) and return a Buffer.
+   * Rejects files larger than MAX_DOCX_BYTES to prevent OOM on memory-constrained
+   * hosts (e.g. Render.com free tier, 512 MB).
    */
   async downloadFileBuffer(url) {
+    const MAX_DOCX_BYTES = 15 * 1024 * 1024; // 15 MB hard limit
+
     const response = await fetch(url, { headers: this.headers });
     if (!response.ok) {
       throw new Error(`Canvas file download failed: ${response.status}`);
     }
+
+    const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
+    if (contentLength > MAX_DOCX_BYTES) {
+      throw new Error(
+        `DOCX bestand te groot (${Math.round(contentLength / 1024 / 1024)} MB). Maximum is 15 MB.`
+      );
+    }
+
     const arrayBuf = await response.buffer();
+
+    // Double-check actual size after download (Content-Length can be absent/wrong)
+    if (arrayBuf.length > MAX_DOCX_BYTES) {
+      throw new Error(
+        `DOCX bestand te groot (${Math.round(arrayBuf.length / 1024 / 1024)} MB). Maximum is 15 MB.`
+      );
+    }
+
     return arrayBuf;
   }
 }

@@ -935,7 +935,7 @@ function renderContributions(data) {
   }).join('');
 
   const unmatchedNote = unmatched > 0
-    ? `<p class="contrib-unmatched">${unmatched} versie-entr${unmatched !== 1 ? 'ies' : 'y'} niet herleidbaar naar een student.</p>`
+    ? `<p class="contrib-unmatched">${unmatched} versie-item${unmatched !== 1 ? 's' : ''} niet herleidbaar naar een student.</p>`
     : '';
 
   return `

@@ -12,12 +12,18 @@ services:
   - type: web
     name: s4-dashboard
     runtime: node
+    plan: free
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
+      # Cap V8 heap at 460 MB so the process stays within the 512 MB free-tier
+      # memory limit. This prevents the OOM killer from terminating the service
+      # when mammoth parses large DOCX submissions.
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=460
       # Vul onderstaande waarden in via het Render Environment-dashboard.
       # Kopieer de waarden uit je canvas.env.example bestand.
       - key: CANVAS_API_TOKEN

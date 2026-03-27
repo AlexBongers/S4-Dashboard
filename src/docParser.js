@@ -37,18 +37,18 @@ function extractTables(html) {
       const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g;
       let cm;
       while ((cm = cellRe.exec(rowHtml)) !== null) {
-        // Strip remaining HTML tags, then decode HTML entities (& must come last
-      // to avoid double-decoding patterns like &amp;lt; into <)
-      const text = cm[1]
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&amp;/g, '&')
-        .replace(/\s+/g, ' ')
-        .trim();
+        // Strip HTML tags, then decode entities. &amp; must be decoded last to
+        // avoid double-decoding (e.g. &amp;lt; → &lt; → <).
+        const text = cm[1]
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/&amp;/g, '&')
+          .replace(/\s+/g, ' ')
+          .trim();
         cells.push(text);
       }
       if (cells.length > 0) rows.push(cells);
@@ -122,8 +122,10 @@ function isVersionTable(rows) {
 function parseAuthors(authorCell) {
   if (!authorCell) return [];
 
-  // Normalise "everyone" entries — treat as no-attribution (skip)
-  if (/\b(allen|everyone|iedereen|all|hele\s*groep|groep)\b/i.test(authorCell)) {
+  // Normalise "everyone" entries — treat as no-attribution (skip).
+  // Only match explicit "whole group" phrases, not the standalone word 'groep'
+  // which could appear as part of a legitimate team or project name.
+  if (/\b(allen|everyone|iedereen|all|hele\s*groep|de\s*groep)\b/i.test(authorCell)) {
     return ['__all__'];
   }
 
