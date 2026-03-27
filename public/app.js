@@ -831,14 +831,13 @@ function buildGroupedAssignmentList(assignments, assignmentGroups, studentId) {
 /* ===== Group contribution loader ===== */
 
 /**
- * Toggle and lazy-load the versiegeschiednis contribution panel for a group
- * assignment. `btn` is the button element that was clicked; `assignmentId` is
- * the Canvas assignment ID; `studentId` (optional) is the Canvas user ID of the
- * student whose submission should be used — required for multi-group classes so
- * that the correct team's document is parsed instead of the first one found.
+ * Shared helper to toggle and lazy-load a contribution panel. Used by both
+ * loadGroupContributions (student detail modal) and loadPmContributions
+ * (Peilmoment 1 modal). The `panelPrefix` determines the DOM ID prefix
+ * ("contrib-" vs "pm-contrib-").
  */
-async function loadGroupContributions(btn, assignmentId, studentId) {
-  const panel = document.getElementById(`contrib-${assignmentId}`);
+async function _loadContribPanel(btn, assignmentId, studentId, panelPrefix) {
+  const panel = document.getElementById(`${panelPrefix}${assignmentId}`);
   if (!panel) return;
 
   // Toggle: if already populated just show/hide
@@ -877,48 +876,14 @@ async function loadGroupContributions(btn, assignmentId, studentId) {
   }
 }
 
-/**
- * Same as loadGroupContributions but targets the PM1 modal's contrib panel
- * (prefixed "pm-contrib-" to avoid ID clashes with the student detail modal).
- * `studentId` is the Canvas user ID of the student being viewed so that the
- * correct group's document is fetched for multi-group classes.
- */
+/** Toggle contribution panel in the student detail modal. */
+async function loadGroupContributions(btn, assignmentId, studentId) {
+  return _loadContribPanel(btn, assignmentId, studentId, 'contrib-');
+}
+
+/** Toggle contribution panel in the Peilmoment 1 modal. */
 async function loadPmContributions(btn, assignmentId, studentId) {
-  const panel = document.getElementById(`pm-contrib-${assignmentId}`);
-  if (!panel) return;
-
-  if (!panel.classList.contains('hidden') && panel.dataset.loaded) {
-    panel.classList.add('hidden');
-    btn.textContent = '👥 Bijdragen';
-    return;
-  }
-  if (panel.dataset.loaded) {
-    panel.classList.remove('hidden');
-    btn.textContent = '👥 Verberg';
-    return;
-  }
-
-  btn.disabled = true;
-  btn.textContent = '…';
-  try {
-    const url = studentId != null
-      ? `/api/doc-contributions/${assignmentId}?studentId=${studentId}`
-      : `/api/doc-contributions/${assignmentId}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Ophalen mislukt');
-    const data = await res.json();
-    panel.innerHTML = renderContributions(data);
-    panel.dataset.loaded = '1';
-    panel.classList.remove('hidden');
-    btn.textContent = '👥 Verberg';
-  } catch (err) {
-    panel.innerHTML = `<p class="contrib-error">Fout: ${escHtml(err.message)}</p>`;
-    panel.dataset.loaded = '1';
-    panel.classList.remove('hidden');
-    btn.textContent = '👥 Verberg';
-  } finally {
-    btn.disabled = false;
-  }
+  return _loadContribPanel(btn, assignmentId, studentId, 'pm-contrib-');
 }
 
 /**
@@ -926,10 +891,20 @@ async function loadPmContributions(btn, assignmentId, studentId) {
  */
 function renderContributions(data) {
   if (!data || !data.contributions || !data.contributions.items || data.contributions.items.length === 0) {
-    return `<p class="contrib-none">Kon niet parsen.</p>`;
+    // Show diagnostic info when parsing fails
+    let diagNote = '';
+    if (data && data.diagnostics) {
+      const d = data.diagnostics;
+      if (d.reason === 'no_docx_found') {
+        diagNote = '<p class="contrib-diag">Geen DOCX bestand gevonden bij deze inlevering.</p>';
+      } else if (d.strategy === 'none') {
+        diagNote = `<p class="contrib-diag">Document bevat ${d.tablesFound} tabel${d.tablesFound !== 1 ? 'len' : ''}, maar geen herkenbare versiegeschiednis.</p>`;
+      }
+    }
+    return `<p class="contrib-none">Kon niet parsen.</p>${diagNote}`;
   }
 
-  const { items, totalEntries, unmatched } = data.contributions;
+  const { items, totalEntries, unmatched, fairnessScore } = data.contributions;
   const maxEntries = items[0] ? items[0].entries : 1;
 
   const bars = items.map((item) => {
@@ -951,11 +926,23 @@ function renderContributions(data) {
     ? `<p class="contrib-unmatched">${unmatched} versie-item${unmatched !== 1 ? 's' : ''} niet herleidbaar naar een student.</p>`
     : '';
 
+  // Fairness indicator: show how evenly work is distributed
+  let fairnessHtml = '';
+  if (fairnessScore !== null && fairnessScore !== undefined) {
+    const fairnessLabel = fairnessScore >= 80 ? 'Gelijkmatig' : fairnessScore >= 50 ? 'Redelijk' : 'Ongelijkmatig';
+    const fairnessColor = fairnessScore >= 80 ? '#4caf50' : fairnessScore >= 50 ? '#ff9800' : '#f44336';
+    fairnessHtml = `<div class="contrib-fairness" title="Verdeling van bijdragen (100 = perfect gelijk)">
+      <span style="color:${fairnessColor}">⚖️ ${fairnessLabel}</span>
+      <span class="contrib-fairness-score">(${fairnessScore}%)</span>
+    </div>`;
+  }
+
   return `
     <div class="contrib-section">
       <div class="contrib-header">Versiegeschiednis bijdragen (${totalEntries} versie${totalEntries !== 1 ? 's' : ''})</div>
       ${bars}
       ${unmatchedNote}
+      ${fairnessHtml}
     </div>
   `;
 }

@@ -2,6 +2,12 @@
 
 const mammoth = require('mammoth');
 
+// Pre-compiled patterns for metadata table detection.
+// These are labels commonly found in document info/property tables
+// (key-value tables like "Auteur: Jan", "Datum: 01-01") that should NOT
+// be mistaken for version history data rows.
+const METADATA_LABELS_RE = /^(titel|document(naam)?|versie|version|datum|date|auteur|author|opdrachtgever|klant|client|project(naam)?|status|opleiding|cursus|vak|module|klas|groep|team|coach|docent|begeleider|bedrijf|organisatie|locatie|afdeling|referentie|kenmerk|bestandsnaam|classificatie)\b/i;
+
 /**
  * Convert a DOCX buffer to a plain HTML string using mammoth.
  * Returns the HTML string or null on failure.
@@ -138,6 +144,7 @@ function findDescriptionColumn(headerRow) {
     /change/i,
     /what/i,
     /^taak$/i,              // Dutch: task — used in "Versie | Taak | Gemaakt door" layout
+    /user\s*stor(y|ies)/i,  // English: user story — common in sprint planning docs
     /activiteit/i,          // Dutch: activity (variant of taak)
     /sectie/i,              // Dutch: section (sometimes used instead of taak)
     /onderdeel/i,           // Dutch: part / component
@@ -151,8 +158,8 @@ function findDescriptionColumn(headerRow) {
     /uitgevoerd/i,          // Dutch: performed
     /bijdrage/i,            // Dutch: contribution
     /^taken$/i,             // Dutch: tasks (plural)
-    /^status$/i,            // status (common in sprint planning tables)
     /resultaat/i,           // Dutch: result
+    /^item$/i,              // Generic: item
   ];
   for (let i = 0; i < headerRow.length; i++) {
     if (candidates.some((re) => re.test(headerRow[i]))) return i;
@@ -260,7 +267,8 @@ function parseAuthors(authorCell) {
 
 /**
  * Find the Canvas student name that best matches a raw author fragment.
- * Tries exact match, last-name match, first-name match, then substring.
+ * Tries exact match, last-name match, first-name match, substring,
+ * prefix, and initials matching (e.g. "JJ" → "Jan Jansen").
  * Returns the matched Canvas name string, or null if no match.
  */
 function matchStudentName(fragment, studentNames) {
@@ -288,11 +296,27 @@ function matchStudentName(fragment, studentNames) {
     if (wordRe.test(name)) return name;
   }
 
-  // 4. Prefix match (initials or abbreviated first names, e.g. "Tao" → "Taoufik")
+  // 4. Prefix match (abbreviated first names, e.g. "Tao" → "Taoufik")
   if (f.length >= 3) {
     for (const name of studentNames) {
       const parts = name.toLowerCase().split(/\s+/);
       if (parts.some((p) => p.startsWith(f))) return name;
+    }
+  }
+
+  // 5. Initials match (e.g. "JJ" → "Jan Jansen", "PP" → "Piet Pietersen")
+  // Only attempt for short uppercase-only fragments (2-5 chars)
+  if (/^[A-Z]{2,5}$/i.test(fragment.trim())) {
+    const initials = f;
+    // Dutch name particles to skip when computing initials
+    const particles = new Set(['de', 'van', 'den', 'het', 'der', 'ten', 'ter']);
+    for (const name of studentNames) {
+      const allParts = name.split(/\s+/);
+      // Try both: with particles filtered out, and with all parts included
+      const filteredParts = allParts.filter((p) => !particles.has(p.toLowerCase()));
+      const filteredInitials = filteredParts.map((p) => p[0]).join('').toLowerCase();
+      const allInitials = allParts.map((p) => p[0]).join('').toLowerCase();
+      if (filteredInitials === initials || allInitials === initials) return name;
     }
   }
 
@@ -352,7 +376,29 @@ function computeContributions(entries, studentNames) {
 
   items.sort((a, b) => b.entries - a.entries || b.words - a.words);
 
-  return { items, totalEntries, unmatched };
+  // Fairness score: how evenly are contributions distributed? (0–100)
+  // 100 = perfectly equal, lower = more skewed. Uses normalized entropy.
+  let fairnessScore = null;
+  if (items.length >= 2) {
+    const entryCounts = items.map((it) => it.entries);
+    const total = entryCounts.reduce((s, c) => s + c, 0);
+    if (total > 0) {
+      const n = entryCounts.length;
+      // Shannon entropy
+      let entropy = 0;
+      for (const c of entryCounts) {
+        if (c > 0) {
+          const p = c / total;
+          entropy -= p * Math.log2(p);
+        }
+      }
+      // Normalise by max entropy (uniform distribution)
+      const maxEntropy = Math.log2(n);
+      fairnessScore = maxEntropy > 0 ? Math.round((entropy / maxEntropy) * 100) : 100;
+    }
+  }
+
+  return { items, totalEntries, unmatched, fairnessScore };
 }
 
 /**
@@ -373,6 +419,7 @@ function parseTablesFromHtml(html) {
   // Fallback 1: if any table contains version/planning keywords, try harder
   for (const table of tables) {
     if (!tableContainsVersionKeywords(table)) continue;
+    if (isMetadataTable(table, 0)) continue;
     const entries = tryParseVersionTableLenient(table);
     if (entries && entries.length > 0) return entries;
   }
@@ -382,11 +429,39 @@ function parseTablesFromHtml(html) {
   // but still have recognisable name-like columns (e.g. sprint planning docs).
   for (const table of tables) {
     if (table.length < 3) continue;
+    if (isMetadataTable(table, 0)) continue;
     const entries = tryParseVersionTableLenient(table);
     if (entries && entries.length > 0) return entries;
   }
 
   return null;
+}
+
+/**
+ * Check whether a table looks like a document metadata / property table
+ * rather than a version history table. Metadata tables are 2-column
+ * key-value tables (e.g. "Auteur | Jan Jansen", "Datum | 01-01-2024")
+ * that should not be mistaken for version history.
+ *
+ * Returns true if the table is likely a metadata table.
+ */
+function isMetadataTable(table, headerIdx) {
+  // Only suspect 2-column tables (key-value layout)
+  const maxCols = Math.max(...table.map((r) => r.length));
+  if (maxCols > 2) return false;
+
+  // Check the data rows below the header: if most first-column cells are
+  // known metadata labels, this is a metadata/property table.
+  let labelCount = 0;
+  let dataRows = 0;
+  for (let i = headerIdx + 1; i < table.length; i++) {
+    const cell = (table[i][0] || '').trim();
+    if (!cell) continue;
+    dataRows++;
+    if (METADATA_LABELS_RE.test(cell)) labelCount++;
+  }
+  // If ≥ 50% of data rows have metadata labels in column 0, it's metadata
+  return dataRows > 0 && labelCount / dataRows >= 0.5;
 }
 
 /**
@@ -402,6 +477,9 @@ function tryParseVersionTable(table) {
   const descCol = findDescriptionColumn(header);
 
   if (authorCol === -1) return null;
+
+  // Reject document metadata tables (2-col key-value tables)
+  if (isMetadataTable(table, headerIdx)) return null;
 
   const entries = [];
   for (let i = headerIdx + 1; i < table.length; i++) {
@@ -492,7 +570,8 @@ function tryParseVersionTableLenient(table) {
  * the table structure.
  *
  * Looks for common patterns:
- * - "Versie X.Y <tab/pipe/dash> Date <tab/pipe/dash> Author <tab/pipe/dash> Description"
+ * - "Versie X.Y <tab/pipe> Date <tab/pipe> Author <tab/pipe> Description"
+ * - "Versie 1.0 - Date - Author - Description" (handles dates containing dashes)
  * - Lines starting with "v1", "v2", etc.
  * - Sections under a "Versiegeschiednis" / "Wijzigingslog" heading
  *
@@ -516,6 +595,8 @@ function parseVersieFromRawText(text) {
   if (startIdx === -1) startIdx = 0;
 
   const entries = [];
+  // Common date pattern (used to strip dates from author fields)
+  const dateRe = /\d{1,4}[\-\/\.]\d{1,2}[\-\/\.]\d{1,4}/;
 
   // Pattern 1: Tab/pipe-delimited rows — "Versie\tDatum\tAuteur\tOmschrijving"
   // or "1.0 | 2024-01-15 | Jan Jansen | Initial version"
@@ -531,20 +612,33 @@ function parseVersieFromRawText(text) {
       continue;
     }
 
-    // Pattern 2: "Versie 1.0 - Author - Description" or "v1 Author Description"
-    const dashRe = /^(?:versie|v)\s*\.?\s*\d[\d.]*\s*[-–—:]\s*(.+?)(?:\s*[-–—:]\s*(.+))?$/i;
-    const m2 = line.match(dashRe);
-    if (m2) {
-      const authorPart = (m2[1] || '').trim();
-      const descPart = (m2[2] || '').trim();
-      // The author part might contain a date — try to strip it
-      const authorCleaned = authorPart.replace(/\d{1,4}[\-\/\.]\d{1,2}[\-\/\.]\d{1,4}/g, '').trim();
-      if (authorCleaned) entries.push({ authors: authorCleaned, description: descPart });
+    // Pattern 2: "Versie 1.0 - Date - Author - Description"
+    // Uses a smarter approach: first extract the version prefix, then split
+    // the remainder on dash/en-dash/em-dash separators while preserving
+    // dates that contain hyphens (dd-mm-yyyy).
+    const versionPrefixRe = /^(?:versie|v)\s*\.?\s*\d[\d.]*\s*[-–—:]\s*/i;
+    const prefixMatch = line.match(versionPrefixRe);
+    if (prefixMatch) {
+      const remainder = line.slice(prefixMatch[0].length);
+      // Split on " - " / " – " / " — " (space-dash-space) to avoid splitting dates
+      const parts = remainder.split(/\s+[-–—]\s+/).map((s) => s.trim()).filter(Boolean);
+      if (parts.length >= 1) {
+        // Find the first part that is NOT a date — that's the author
+        let authorIdx = -1;
+        for (let j = 0; j < parts.length; j++) {
+          if (!dateRe.test(parts[j])) {
+            authorIdx = j;
+            break;
+          }
+        }
+        if (authorIdx !== -1) {
+          const authors = parts[authorIdx];
+          const description = parts.slice(authorIdx + 1).join(' — ');
+          entries.push({ authors, description });
+        }
+      }
     }
   }
-
-  // Stop at the next section heading (a short line that doesn't look like a version entry)
-  // Already handled by just breaking when patterns no longer match.
 
   return entries.length > 0 ? entries : null;
 }
@@ -579,4 +673,42 @@ async function parseVersiegeschiedenis(buffer) {
   return null;
 }
 
-module.exports = { parseVersiegeschiedenis, computeContributions };
+/**
+ * Parse a DOCX buffer and return both the parsed entries AND diagnostic info
+ * (e.g. how many tables were found, which strategy succeeded). Useful for
+ * debugging when documents fail to parse.
+ *
+ * Returns { entries: array|null, diagnostics: { tablesFound, strategy, ... } }
+ */
+async function parseWithDiagnostics(buffer) {
+  const diagnostics = { tablesFound: 0, strategy: null, htmlLength: 0, textLength: 0 };
+  let entries = null;
+
+  const html = await docxToHtml(buffer);
+  if (html) {
+    diagnostics.htmlLength = html.length;
+    const tables = extractTables(html);
+    diagnostics.tablesFound = tables.length;
+
+    entries = parseTablesFromHtml(html);
+    if (entries && entries.length > 0) {
+      diagnostics.strategy = 'html_table';
+      return { entries, diagnostics };
+    }
+  }
+
+  const text = await docxToText(buffer);
+  if (text) {
+    diagnostics.textLength = text.length;
+    entries = parseVersieFromRawText(text);
+    if (entries && entries.length > 0) {
+      diagnostics.strategy = 'raw_text';
+      return { entries, diagnostics };
+    }
+  }
+
+  diagnostics.strategy = 'none';
+  return { entries: null, diagnostics };
+}
+
+module.exports = { parseVersiegeschiedenis, parseWithDiagnostics, computeContributions };

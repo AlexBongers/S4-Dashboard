@@ -2,7 +2,7 @@
 
 const express = require('express');
 const fetch = require('node-fetch');
-const { parseVersiegeschiedenis, computeContributions } = require('../docParser');
+const { parseWithDiagnostics, computeContributions } = require('../docParser');
 
 const router = express.Router();
 
@@ -570,7 +570,7 @@ router.get('/doc-contributions/:assignmentId', async (req, res) => {
     // so multi-group assignments always return the correct document.
     const attachment = await client.getGroupSubmissionDocx(assignmentId, studentId);
     if (!attachment) {
-      const result = { contributions: null };
+      const result = { contributions: null, diagnostics: { reason: 'no_docx_found' } };
       _contributionsCache[cacheKey] = result;
       return res.json(result);
     }
@@ -578,10 +578,10 @@ router.get('/doc-contributions/:assignmentId', async (req, res) => {
     // Download the DOCX file
     const buffer = await client.downloadFileBuffer(attachment.url);
 
-    // Parse the versiegeschiednis table
-    const entries = await parseVersiegeschiedenis(buffer);
+    // Parse the versiegeschiednis table (with diagnostics for debugging)
+    const { entries, diagnostics } = await parseWithDiagnostics(buffer);
     if (!entries || entries.length === 0) {
-      const result = { contributions: null };
+      const result = { contributions: null, diagnostics };
       _contributionsCache[cacheKey] = result;
       return res.json(result);
     }
@@ -591,7 +591,7 @@ router.get('/doc-contributions/:assignmentId', async (req, res) => {
     const studentNames = students.map((s) => s.name);
     const contributions = computeContributions(entries, studentNames);
 
-    const result = { contributions };
+    const result = { contributions, diagnostics };
     _contributionsCache[cacheKey] = result;
     return res.json(result);
   } catch (err) {
