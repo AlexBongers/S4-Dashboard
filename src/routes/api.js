@@ -22,7 +22,6 @@ const PEILMOMENT1_ITEMS = [
   { key: 'plan',              label: 'Plan van aanpak',                 pattern: /plan\s+van\s+aanpak/i },
   { key: 'sprintplanning',    label: 'Sprintplanning',                  assignmentId: 392606, pattern: /sprint\s*planning/i },
   { key: 'peilmoment1',       label: 'Peilmoment 1',                    assignmentId: 392598, pattern: /^peilmoment\s*1$/i },
-  { key: 'sprint2release',    label: 'Sprint 2 release',                assignmentId: 392607, pattern: /sprint\s*2\s*release/i },
   { key: 'teamcontract',      label: 'Teamcontract',                    assignmentId: 398216, pattern: /teamcontract/i },
   { key: 'teambranding',      label: 'Teambranding presentatie',        assignmentId: 398881, pattern: /teambranding/i },
 ];
