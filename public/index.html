@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>S4 Student Dashboard</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-inner">
+        <div class="header-title">
+          <svg class="header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+          <div>
+            <h1>S4 Student Dashboard</h1>
+            <p class="course-name" id="courseName">Canvas leeromgeving</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <span class="last-updated" id="lastUpdated"></span>
+          <button class="btn btn-secondary" id="exportBtn" onclick="exportCsv()" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Exporteer CSV
+          </button>
+          <button class="btn btn-secondary" id="refreshBtn" onclick="loadData()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+              <polyline points="23 4 23 10 17 10"/>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            Vernieuwen
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <!-- Loading state -->
+      <div id="loading" class="loading-state">
+        <div class="spinner"></div>
+        <p>Studentgegevens ophalen uit Canvas…</p>
+      </div>
+
+      <!-- Error state -->
+      <div id="errorState" class="error-state hidden">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="error-icon">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <h2>Kan gegevens niet ophalen</h2>
+        <p id="errorMessage"></p>
+        <button class="btn btn-primary" onclick="loadData()">Opnieuw proberen</button>
+      </div>
+
+      <!-- Dashboard content -->
+      <div id="dashboard" class="hidden">
+
+        <!-- Filters & sort -->
+        <div class="toolbar">
+          <div class="filter-group">
+            <label for="filterStatus">Filter:</label>
+            <select id="filterStatus" onchange="renderTable()">
+              <option value="all">Alle studenten</option>
+              <option value="voorloopt">Loopt voor</option>
+              <option value="op_schema">Op schema</option>
+              <option value="let_op">Let op</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="filterTeam">Team:</label>
+            <select id="filterTeam" onchange="renderTable()">
+              <option value="all">Alle teams</option>
+              <option value="1">Team 1 – Leo</option>
+              <option value="2">Team 2 – Alex</option>
+              <option value="3">Team 3 – Alex</option>
+              <option value="4">Team 4 – Jeroen</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="searchInput">Zoeken:</label>
+            <input type="text" id="searchInput" placeholder="Studentnaam…" oninput="renderTable()" />
+          </div>
+          <div class="sort-group">
+            <label for="sortBy">Sorteren op:</label>
+            <select id="sortBy" onchange="renderTable()">
+              <option value="name">Naam</option>
+              <option value="pm1Status">Peilmoment 1</option>
+              <option value="submissionRate">Voortgang</option>
+              <option value="attendancePct">Aanwezigheid</option>
+              <option value="late">Te laat</option>
+            </select>
+            <button class="sort-dir-btn" id="sortDirBtn" onclick="toggleSortDir()">↑</button>
+          </div>
+        </div>
+
+        <!-- Student table -->
+        <div class="table-container">
+          <table class="student-table">
+            <thead>
+              <tr>
+                <th class="th-sort" onclick="sortByColumn('name')">
+                  Student <span class="sort-icon" id="sort-name"></span>
+                </th>
+                <th class="center th-sort" onclick="sortByColumn('pm1Status')">
+                  Acties <span class="sort-icon" id="sort-pm1Status"></span>
+                </th>
+                <th class="center th-sort" onclick="sortByColumn('submissionRate')">
+                  Voltooid <span class="sort-icon" id="sort-submissionRate"></span>
+                </th>
+                <th class="center th-sort" onclick="sortByColumn('late')">
+                  Te laat <span class="sort-icon" id="sort-late"></span>
+                </th>
+                <th class="center th-sort" onclick="sortByColumn('submissionRate')">
+                  Voortgang % <span class="sort-icon" id="sort-inleverpercentage"></span>
+                </th>
+                <th class="center th-sort" id="thAttendance" onclick="sortByColumn('attendancePct')">
+                  Aanwezigheid <span class="sort-icon" id="sort-attendancePct"></span>
+                </th>
+              </tr>
+            </thead>
+            <tbody id="studentTableBody"></tbody>
+          </table>
+          <p id="noResults" class="no-results hidden">Geen studenten gevonden met deze filter.</p>
+        </div>
+      </div>
+    </main>
+
+    <!-- Student detail modal -->
+    <div id="studentModal" class="modal hidden" onclick="closeModalOnBackdrop(event)">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <img class="modal-avatar" id="modalAvatar" src="" alt="" />
+            <div>
+              <h2 id="modalStudentName"></h2>
+              <div id="modalStudentStatus"></div>
+            </div>
+          </div>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+
+        <div class="modal-stats" id="modalStats"></div>
+
+        <div id="modalLoading" class="loading-state">
+          <div class="spinner"></div>
+          <p>Opdrachten ophalen…</p>
+        </div>
+
+        <div id="modalContent" class="hidden">
+          <h3>Opdrachten overzicht</h3>
+          <div class="assignment-list" id="assignmentList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Peilmoment 1 modal -->
+    <div id="peilmomentModal" class="modal hidden" onclick="closePeilmomentOnBackdrop(event)">
+      <div class="modal-content modal-content-narrow">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <img class="modal-avatar" id="pmAvatar" src="" alt="" />
+            <div>
+              <h2 id="pmStudentName"></h2>
+              <span class="badge badge-red">Peilmoment 1</span>
+            </div>
+          </div>
+          <button class="modal-close" onclick="closePeilmomentModal()">✕</button>
+        </div>
+
+        <div id="pmLoading" class="loading-state">
+          <div class="spinner"></div>
+          <p>Gegevens ophalen…</p>
+        </div>
+
+        <div id="pmContent" class="hidden">
+          <div class="pm-list" id="pmList"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
