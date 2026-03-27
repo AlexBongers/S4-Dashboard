@@ -29,7 +29,7 @@ const PEILMOMENT1_ITEMS = [
   { key: 'peilmoment1',       label: 'Peilmoment 1',                    assignmentId: 392598, pattern: /^peilmoment\s*1$/i },
   { key: 'teamcontract',      label: 'Teamcontract',                    assignmentId: 398216, pattern: /teamcontract/i },
   { key: 'teambranding',      label: 'Teambranding presentatie',        assignmentId: 398881, pattern: /teambranding/i },
-  { key: 'extra398535',       label: 'Extra opdracht',                  assignmentId: 398535, pattern: /398535/i },
+  { key: 'opdracht398535',    label: 'Extra opdracht',                  assignmentId: 398535, pattern: /398535/i },
 ];
 
 // Weights for the multi-factor health score used to determine student status.
