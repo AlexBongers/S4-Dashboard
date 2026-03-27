@@ -157,8 +157,9 @@ function findDescriptionColumn(headerRow) {
   for (let i = 0; i < headerRow.length; i++) {
     if (candidates.some((re) => re.test(headerRow[i]))) return i;
   }
-  // Fallback: last column if there are ≥2 columns
-  return headerRow.length >= 2 ? headerRow.length - 1 : -1;
+  // Fallback: last column if there are ≥3 columns (not ≥2, to avoid overlap
+  // with the author column when both author and description share a 2-col table)
+  return headerRow.length >= 3 ? headerRow.length - 1 : -1;
 }
 
 /**
@@ -181,7 +182,7 @@ function findVersionTableHeader(rows) {
     const hasVersionCol = row.some((c) => /versie|version|v\.\s*\d|^v$/i.test(c));
     const hasDatumCol = row.some((c) => /datum|date|deadline/i.test(c));
     const hasSprintCol = row.some((c) => /^sprint$/i.test(c));
-    const hasTaskCol = row.some((c) => /^taak$|^task$|user\s*stor/i.test(c));
+    const hasTaskCol = row.some((c) => /^taak$|^task$|^user\s*stor(y|ies)$/i.test(c));
     if (hasAuthorCol && (hasVersionCol || hasDatumCol || hasSprintCol || hasTaskCol)) return rowIndex;
   }
 
@@ -221,8 +222,19 @@ function findVersionTableHeader(rows) {
  * Returns true if the table likely contains version history or task/contribution data.
  */
 function tableContainsVersionKeywords(rows) {
-  const text = rows.map((r) => r.join(' ')).join(' ').toLowerCase();
-  return /versie\s*geschied|version\s*hist|wijzigings?\s*(log|geschied|overzicht)|sprint\s*planning|sprint\s*backlog|taken\s*verdel|bijdrage|contributie|taakverdelingen/i.test(text);
+  const text = rows.map((r) => r.join(' ')).join(' ');
+  const patterns = [
+    /versie\s*geschied/i,
+    /version\s*hist/i,
+    /wijzigings?\s*(log|geschied|overzicht)/i,
+    /sprint\s*planning/i,
+    /sprint\s*backlog/i,
+    /taken\s*verdel/i,
+    /bijdrage/i,
+    /contributie/i,
+    /taakverdelingen/i,
+  ];
+  return patterns.some((p) => p.test(text));
 }
 
 /**
@@ -431,6 +443,8 @@ function tryParseVersionTableLenient(table) {
       // Name-like: 1-4 words, each starting with uppercase (or is a lowercase
       // particle like "de", "van" common in Dutch surnames)
       if (words.length >= 1 && words.length <= 4) {
+        // \u00C0-\u024F covers Latin Extended characters (accented letters
+        // common in Dutch/French names: é, ë, ü, ö, etc.)
         const allNameLike = words.every(
           (w) => (/^[A-Z\u00C0-\u024F]/.test(w) && w.length >= 2) || particles.has(w.toLowerCase())
         );
