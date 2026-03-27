@@ -5,6 +5,19 @@ const fetch = require('node-fetch');
 /** Default cache lifetime in milliseconds (5 minutes), configurable via CANVAS_CACHE_TTL_SECONDS env var. */
 const CACHE_TTL_MS = (parseInt(process.env.CANVAS_CACHE_TTL_SECONDS, 10) || 300) * 1000;
 
+/**
+ * Find the first DOCX attachment in an array of Canvas attachment objects.
+ * Returns the attachment object or null if none found.
+ */
+function _findDocxAttachment(attachments) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return null;
+  return attachments.find(
+    (a) =>
+      (a.content_type && a.content_type.includes('wordprocessingml')) ||
+      (a.filename && a.filename.toLowerCase().endsWith('.docx'))
+  ) || null;
+}
+
 class CanvasClient {
   constructor({ apiToken, baseUrl, courseId }) {
     // Strip trailing slash and extract the origin (base host)
@@ -248,29 +261,44 @@ class CanvasClient {
         // Fetch the specific student's submission directly. For group
         // assignments this always returns the correct group's submission
         // (including its attachments), regardless of submission order.
+        // Include submission_comments so we can also find DOCX files
+        // uploaded in assignment comments (e.g. Sprint 1 release docs).
         const sub = await this._get(
-          `/courses/${this.courseId}/assignments/${assignmentId}/submissions/${studentId}`
+          `/courses/${this.courseId}/assignments/${assignmentId}/submissions/${studentId}`,
+          { include: ['submission_comments'] }
         );
         submissionsToSearch = sub ? [sub] : [];
       } else {
         // Fallback: scan all submissions and use the first DOCX found.
         submissionsToSearch = await this._get(
           `/courses/${this.courseId}/assignments/${assignmentId}/submissions`,
-          { student_ids: ['all'], per_page: 100 }
+          { student_ids: ['all'], per_page: 100, include: ['submission_comments'] }
         );
       }
 
+      // First pass: check main submission attachments (preferred source)
       for (const s of submissionsToSearch) {
-        if (!Array.isArray(s.attachments) || s.attachments.length === 0) continue;
-        const docx = s.attachments.find(
-          (a) =>
-            (a.content_type &&
-              a.content_type.includes('wordprocessingml')) ||
-            (a.filename && a.filename.toLowerCase().endsWith('.docx'))
-        );
+        const docx = _findDocxAttachment(s.attachments);
         if (docx) {
           attachment = docx;
           break;
+        }
+      }
+
+      // Second pass: check submission comment attachments as fallback.
+      // Students sometimes upload documents via comments instead of (or in
+      // addition to) the main submission file upload.
+      if (!attachment) {
+        for (const s of submissionsToSearch) {
+          if (!Array.isArray(s.submission_comments)) continue;
+          for (const comment of s.submission_comments) {
+            const docx = _findDocxAttachment(comment.attachments);
+            if (docx) {
+              attachment = docx;
+              break;
+            }
+          }
+          if (attachment) break;
         }
       }
     } catch {
