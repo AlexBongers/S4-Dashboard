@@ -22,19 +22,20 @@ async function docxToHtml(buffer) {
  */
 function extractTables(html) {
   const tables = [];
-  // mammoth wraps everything in predictable elements; tables are <table>...</table>
-  const tableRe = /<table>([\s\S]*?)<\/table>/g;
+  // Use [^>]* to tolerate any attributes mammoth may add to <table> tags
+  const tableRe = /<table[^>]*>([\s\S]*?)<\/table>/gi;
   let tm;
   while ((tm = tableRe.exec(html)) !== null) {
     const tableHtml = tm[1];
     const rows = [];
-    const rowRe = /<tr>([\s\S]*?)<\/tr>/g;
+    // Use [^>]* to tolerate any attributes on <tr> tags
+    const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
     let rm;
     while ((rm = rowRe.exec(tableHtml)) !== null) {
       const rowHtml = rm[1];
       const cells = [];
-      // Match both <td> and <th>
-      const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g;
+      // Match both <td> and <th>, with any attributes
+      const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
       let cm;
       while ((cm = cellRe.exec(rowHtml)) !== null) {
         // Strip HTML tags, then decode entities. &amp; must be decoded last to
@@ -67,9 +68,12 @@ function findAuthorColumn(headerRow) {
     /auteur/i,
     /author/i,
     /door\s*wie/i,
+    /^wie$/i,               // very common Dutch shorthand for "wie heeft het gedaan"
     /geschreven\s+door/i,
     /naam/i,
     /student/i,
+    /bijdrager/i,           // contributor
+    /persoon/i,             // person
   ];
   for (let i = 0; i < headerRow.length; i++) {
     if (candidates.some((re) => re.test(headerRow[i]))) return i;
@@ -103,15 +107,22 @@ function findDescriptionColumn(headerRow) {
 
 /**
  * Determine whether a table looks like a versiegeschiednis (version history)
- * table. Checks header row for characteristic keywords.
+ * table by scanning the first few rows. Many Dutch student documents start
+ * the table with a spanning title row ("Versiegeschiednis") before the actual
+ * column headers, so we probe up to the first 3 rows instead of only row 0.
+ *
+ * Returns the index of the header row (0-based), or -1 if not found.
  */
-function isVersionTable(rows) {
-  if (rows.length < 2) return false;
-  const header = rows[0];
-  const hasVersionCol = header.some((c) => /versie|version|v\./i.test(c));
-  const hasAuthorCol = findAuthorColumn(header) !== -1;
-  const hasDatumCol = header.some((c) => /datum|date/i.test(c));
-  return hasAuthorCol && (hasVersionCol || hasDatumCol);
+function findVersionTableHeader(rows) {
+  if (rows.length < 2) return -1;
+  for (let i = 0; i < Math.min(3, rows.length - 1); i++) {
+    const row = rows[i];
+    const hasAuthorCol = findAuthorColumn(row) !== -1;
+    const hasVersionCol = row.some((c) => /versie|version|v\./i.test(c));
+    const hasDatumCol = row.some((c) => /datum|date/i.test(c));
+    if (hasAuthorCol && (hasVersionCol || hasDatumCol)) return i;
+  }
+  return -1;
 }
 
 /**
@@ -237,30 +248,34 @@ async function parseVersiegeschiedenis(buffer) {
   const tables = extractTables(html);
   if (tables.length === 0) return null;
 
-  // Find the best matching versie table
-  const versionTable = tables.find((t) => isVersionTable(t));
-  if (!versionTable) return null;
+  // Try every table — version history is not always the first table in the document.
+  for (const table of tables) {
+    const headerIdx = findVersionTableHeader(table);
+    if (headerIdx === -1) continue;
 
-  const header = versionTable[0];
-  const authorCol = findAuthorColumn(header);
-  const descCol = findDescriptionColumn(header);
+    const header = table[headerIdx];
+    const authorCol = findAuthorColumn(header);
+    const descCol = findDescriptionColumn(header);
 
-  if (authorCol === -1) return null;
+    if (authorCol === -1) continue;
 
-  // Skip the header row; parse data rows
-  const entries = [];
-  for (let i = 1; i < versionTable.length; i++) {
-    const row = versionTable[i];
-    const authors = row[authorCol] || '';
-    const description = descCol !== -1 ? (row[descCol] || '') : '';
+    // Skip the header row (and any title rows above it); parse data rows
+    const entries = [];
+    for (let i = headerIdx + 1; i < table.length; i++) {
+      const row = table[i];
+      const authors = row[authorCol] || '';
+      const description = descCol !== -1 ? (row[descCol] || '') : '';
 
-    // Skip entirely empty or separator rows
-    if (!authors.trim()) continue;
+      // Skip entirely empty or separator rows
+      if (!authors.trim()) continue;
 
-    entries.push({ authors: authors.trim(), description: description.trim() });
+      entries.push({ authors: authors.trim(), description: description.trim() });
+    }
+
+    if (entries.length > 0) return entries;
   }
 
-  return entries.length > 0 ? entries : null;
+  return null;
 }
 
 module.exports = { parseVersiegeschiedenis, computeContributions };
