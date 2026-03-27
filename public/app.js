@@ -926,7 +926,7 @@ async function loadPmContributions(btn, assignmentId, studentId) {
  */
 function renderContributions(data) {
   if (!data || !data.contributions || !data.contributions.items || data.contributions.items.length === 0) {
-    return `<p class="contrib-none">Geen versiegeschiednis gevonden in de ingeleverde document(en).</p>`;
+    return `<p class="contrib-none">Kon niet parsen.</p>`;
   }
 
   const { items, totalEntries, unmatched } = data.contributions;
