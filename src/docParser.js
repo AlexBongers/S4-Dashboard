@@ -70,7 +70,9 @@ function findAuthorColumn(headerRow) {
     /door\s*wie/i,
     /^wie$/i,               // very common Dutch shorthand for "wie heeft het gedaan"
     /geschreven\s+door/i,
+    /gemaakt\s+door/i,      // Dutch: made by (common in student/corporate templates)
     /opgesteld\s+door/i,    // Dutch: compiled by
+    /gemaakt/i,             // fallback for standalone "gemaakt" header cells
     /opsteller/i,           // Dutch: originator / author (common in corporate templates)
     /naam/i,
     /student/i,
@@ -101,6 +103,10 @@ function findDescriptionColumn(headerRow) {
     /description/i,
     /change/i,
     /what/i,
+    /^taak$/i,              // Dutch: task — used in "Versie | Taak | Gemaakt door" layout
+    /activiteit/i,          // Dutch: activity (variant of taak)
+    /sectie/i,              // Dutch: section (sometimes used instead of taak)
+    /onderdeel/i,           // Dutch: part / component
   ];
   for (let i = 0; i < headerRow.length; i++) {
     if (candidates.some((re) => re.test(headerRow[i]))) return i;
