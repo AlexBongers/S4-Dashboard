@@ -224,12 +224,17 @@ class CanvasClient {
     }
   }
   /**
-   * Fetch submissions for a specific assignment and return the first DOCX
-   * attachment found. Returns null if no DOCX attachment exists.
-   * Results are cached with the normal TTL.
+   * Fetch the DOCX attachment for an assignment submission.
+   *
+   * When `studentId` is provided the specific student's submission is fetched
+   * directly (reliable for group assignments where each team submits their own
+   * document). Without `studentId` the method falls back to scanning all
+   * submissions and returning the first DOCX found.
+   *
+   * Results are cached per assignment+student with the normal TTL.
    */
-  async getGroupSubmissionDocx(assignmentId) {
-    const cacheKey = `group_docx_${this.courseId}_${assignmentId}`;
+  async getGroupSubmissionDocx(assignmentId, studentId = null) {
+    const cacheKey = `group_docx_${this.courseId}_${assignmentId}_${studentId || 'any'}`;
     const cached = this._cacheGet(cacheKey);
     // Use a wrapper so we can cache a null result without confusing it with
     // "not in cache" (which also returns null from _cacheGet).
@@ -237,12 +242,25 @@ class CanvasClient {
 
     let attachment = null;
     try {
-      const submissions = await this._get(
-        `/courses/${this.courseId}/assignments/${assignmentId}/submissions`,
-        { student_ids: ['all'], include: ['attachment'], per_page: 100 }
-      );
+      let submissionsToSearch;
 
-      for (const s of submissions) {
+      if (studentId) {
+        // Fetch the specific student's submission directly. For group
+        // assignments this always returns the correct group's submission
+        // (including its attachments), regardless of submission order.
+        const sub = await this._get(
+          `/courses/${this.courseId}/assignments/${assignmentId}/submissions/${studentId}`
+        );
+        submissionsToSearch = sub ? [sub] : [];
+      } else {
+        // Fallback: scan all submissions and use the first DOCX found.
+        submissionsToSearch = await this._get(
+          `/courses/${this.courseId}/assignments/${assignmentId}/submissions`,
+          { student_ids: ['all'], per_page: 100 }
+        );
+      }
+
+      for (const s of submissionsToSearch) {
         if (!Array.isArray(s.attachments) || s.attachments.length === 0) continue;
         const docx = s.attachments.find(
           (a) =>

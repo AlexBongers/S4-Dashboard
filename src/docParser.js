@@ -70,10 +70,14 @@ function findAuthorColumn(headerRow) {
     /door\s*wie/i,
     /^wie$/i,               // very common Dutch shorthand for "wie heeft het gedaan"
     /geschreven\s+door/i,
+    /opgesteld\s+door/i,    // Dutch: compiled by
+    /opsteller/i,           // Dutch: originator / author (common in corporate templates)
     /naam/i,
     /student/i,
     /bijdrager/i,           // contributor
     /persoon/i,             // person
+    /medewerker/i,          // Dutch: colleague / employee (common in company templates)
+    /initialen/i,           // Dutch: initials (used when only initials are recorded)
   ];
   for (let i = 0; i < headerRow.length; i++) {
     if (candidates.some((re) => re.test(headerRow[i]))) return i;
@@ -109,18 +113,20 @@ function findDescriptionColumn(headerRow) {
  * Determine whether a table looks like a versiegeschiednis (version history)
  * table by scanning the first few rows. Many Dutch student documents start
  * the table with a spanning title row ("Versiegeschiednis") before the actual
- * column headers, so we probe up to the first 3 rows instead of only row 0.
+ * column headers, so we probe up to the first 5 rows instead of only row 0.
+ * Corporate/company templates (e.g. Axians) sometimes add additional info rows
+ * before the actual header, which is why we scan up to 5 rows.
  *
  * Returns the index of the header row (0-based), or -1 if not found.
  */
 function findVersionTableHeader(rows) {
   if (rows.length < 2) return -1;
-  for (let i = 0; i < Math.min(3, rows.length - 1); i++) {
-    const row = rows[i];
+  for (let rowIndex = 0; rowIndex < Math.min(5, rows.length - 1); rowIndex++) {
+    const row = rows[rowIndex];
     const hasAuthorCol = findAuthorColumn(row) !== -1;
     const hasVersionCol = row.some((c) => /versie|version|v\./i.test(c));
     const hasDatumCol = row.some((c) => /datum|date/i.test(c));
-    if (hasAuthorCol && (hasVersionCol || hasDatumCol)) return i;
+    if (hasAuthorCol && (hasVersionCol || hasDatumCol)) return rowIndex;
   }
   return -1;
 }

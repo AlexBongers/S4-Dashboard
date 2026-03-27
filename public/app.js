@@ -561,7 +561,7 @@ async function openStudentModal(studentId) {
 
     // Render assignment list grouped by assignment group
     document.getElementById('assignmentList').innerHTML =
-      buildGroupedAssignmentList(data.assignments, data.assignmentGroups || []);
+      buildGroupedAssignmentList(data.assignments, data.assignmentGroups || [], studentId);
 
     modalLoading.classList.add('hidden');
     modalContent.classList.remove('hidden');
@@ -726,7 +726,7 @@ function resolveAssignmentStatus(grade, submissionStatus) {
   return assignmentStatusInfo(submissionStatus);
 }
 
-function buildAssignmentItem(a) {
+function buildAssignmentItem(a, studentId) {
   const statusInfo = resolveAssignmentStatus(a.grade, a.submissionStatus);
 
   const dueText = a.isDue
@@ -747,9 +747,12 @@ function buildAssignmentItem(a) {
     ? `<a href="${escHtml(linkUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(a.name)}</a>`
     : escHtml(a.name);
 
-  // For group assignments add a lazy-load contributions toggle
+  // For group assignments add a lazy-load contributions toggle.
+  // Pass the student ID so the API fetches this student's own group submission
+  // (not just the first DOCX found, which would be wrong for multi-group classes).
+  const studentIdArg = studentId != null ? `, ${studentId}` : '';
   const contribToggle = a.isGroupAssignment
-    ? `<button class="contrib-toggle" onclick="loadGroupContributions(this, ${a.id})" title="Laad bijdragen vanuit versiegeschiednis">👥 Bijdragen</button>`
+    ? `<button class="contrib-toggle" onclick="loadGroupContributions(this, ${a.id}${studentIdArg})" title="Laad bijdragen vanuit versiegeschiednis">👥 Bijdragen</button>`
     : '';
   const contribPanel = a.isGroupAssignment
     ? `<div class="contrib-panel hidden" id="contrib-${a.id}"></div>`
@@ -770,10 +773,10 @@ function buildAssignmentItem(a) {
   `;
 }
 
-function buildGroupedAssignmentList(assignments, assignmentGroups) {
+function buildGroupedAssignmentList(assignments, assignmentGroups, studentId) {
   // If no groups available, fall back to flat list
   if (!assignmentGroups || assignmentGroups.length === 0) {
-    return assignments.map((a) => buildAssignmentItem(a)).join('');
+    return assignments.map((a) => buildAssignmentItem(a, studentId)).join('');
   }
 
   // Group assignments by assignmentGroupId
@@ -819,7 +822,7 @@ function buildGroupedAssignmentList(assignments, assignmentGroups) {
             ${completedItems}/${dueItems.length}
           </span>
         </div>
-        ${items.map((a) => buildAssignmentItem(a)).join('')}
+        ${items.map((a) => buildAssignmentItem(a, studentId)).join('')}
       </div>
     `;
   }).join('');
@@ -830,9 +833,11 @@ function buildGroupedAssignmentList(assignments, assignmentGroups) {
 /**
  * Toggle and lazy-load the versiegeschiednis contribution panel for a group
  * assignment. `btn` is the button element that was clicked; `assignmentId` is
- * the Canvas assignment ID.
+ * the Canvas assignment ID; `studentId` (optional) is the Canvas user ID of the
+ * student whose submission should be used — required for multi-group classes so
+ * that the correct team's document is parsed instead of the first one found.
  */
-async function loadGroupContributions(btn, assignmentId) {
+async function loadGroupContributions(btn, assignmentId, studentId) {
   const panel = document.getElementById(`contrib-${assignmentId}`);
   if (!panel) return;
 
@@ -852,7 +857,10 @@ async function loadGroupContributions(btn, assignmentId) {
   btn.disabled = true;
   btn.textContent = '…';
   try {
-    const res = await fetch(`/api/doc-contributions/${assignmentId}`);
+    const url = studentId != null
+      ? `/api/doc-contributions/${assignmentId}?studentId=${studentId}`
+      : `/api/doc-contributions/${assignmentId}`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error('Ophalen mislukt');
     const data = await res.json();
     panel.innerHTML = renderContributions(data);
@@ -872,8 +880,10 @@ async function loadGroupContributions(btn, assignmentId) {
 /**
  * Same as loadGroupContributions but targets the PM1 modal's contrib panel
  * (prefixed "pm-contrib-" to avoid ID clashes with the student detail modal).
+ * `studentId` is the Canvas user ID of the student being viewed so that the
+ * correct group's document is fetched for multi-group classes.
  */
-async function loadPmContributions(btn, assignmentId) {
+async function loadPmContributions(btn, assignmentId, studentId) {
   const panel = document.getElementById(`pm-contrib-${assignmentId}`);
   if (!panel) return;
 
@@ -891,7 +901,10 @@ async function loadPmContributions(btn, assignmentId) {
   btn.disabled = true;
   btn.textContent = '…';
   try {
-    const res = await fetch(`/api/doc-contributions/${assignmentId}`);
+    const url = studentId != null
+      ? `/api/doc-contributions/${assignmentId}?studentId=${studentId}`
+      : `/api/doc-contributions/${assignmentId}`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error('Ophalen mislukt');
     const data = await res.json();
     panel.innerHTML = renderContributions(data);
@@ -1015,7 +1028,7 @@ async function openPeilmomentModal(studentId) {
       studentDetailCache.set(studentId, data);
     }
 
-    document.getElementById('pmList').innerHTML = buildPeilmomentContent(data.peilmoment1, data.attendancePct);
+    document.getElementById('pmList').innerHTML = buildPeilmomentContent(data.peilmoment1, data.attendancePct, studentId);
 
     pmLoading.classList.add('hidden');
     pmContent.classList.remove('hidden');
@@ -1024,7 +1037,7 @@ async function openPeilmomentModal(studentId) {
   }
 }
 
-function buildPeilmomentContent(peilmoment1, attendancePct) {
+function buildPeilmomentContent(peilmoment1, attendancePct, studentId) {
   const items = (peilmoment1 || []).map((item) => {
     if (!item.found) {
       return `
@@ -1058,9 +1071,11 @@ function buildPeilmomentContent(peilmoment1, attendancePct) {
       : escHtml(item.assignmentName || item.label);
 
     // For group assignments add a lazy-load contributions toggle (uses a unique
-    // panel ID prefixed with "pm-contrib-" to avoid collisions with the detail modal)
+    // panel ID prefixed with "pm-contrib-" to avoid collisions with the detail modal).
+    // Pass studentId so the API fetches this student's own group's document.
+    const studentIdArg = studentId != null ? `, ${studentId}` : '';
     const pmContribToggle = item.isGroupAssignment
-      ? `<button class="contrib-toggle" onclick="loadPmContributions(this, ${item.assignmentId})" title="Laad bijdragen vanuit versiegeschiednis">👥 Bijdragen</button>`
+      ? `<button class="contrib-toggle" onclick="loadPmContributions(this, ${item.assignmentId}${studentIdArg})" title="Laad bijdragen vanuit versiegeschiednis">👥 Bijdragen</button>`
       : '';
     const pmContribPanel = item.isGroupAssignment
       ? `<div class="contrib-panel hidden" id="pm-contrib-${item.assignmentId}"></div>`

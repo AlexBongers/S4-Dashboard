@@ -539,27 +539,38 @@ router.post('/cache/clear', (req, res) => {
   res.json({ cleared: true });
 });
 
-// GET /api/doc-contributions/:assignmentId — Parse the versiegeschiednis table
-// from the group submission DOCX for an assignment and return per-student
-// contribution metrics. Returns { contributions: null } if the assignment has
-// no DOCX submission or no recognisable versiegeschiednis table.
+// GET /api/doc-contributions/:assignmentId?studentId=:studentId
+// Parse the versiegeschiednis table from the group submission DOCX and return
+// per-student contribution metrics.
+// When `studentId` is supplied the DOCX is fetched from that specific student's
+// submission, which is essential for multi-group classes where every team
+// submits their own document. Falls back to the first DOCX found when omitted.
+// Returns { contributions: null } if no DOCX or no recognisable table is found.
 router.get('/doc-contributions/:assignmentId', async (req, res) => {
   const assignmentId = parseInt(req.params.assignmentId, 10);
   if (!Number.isFinite(assignmentId)) return res.status(400).json({ error: 'Invalid assignment ID' });
 
+  const studentId = req.query.studentId ? parseInt(req.query.studentId, 10) : null;
+  if (studentId !== null && !Number.isFinite(studentId)) {
+    return res.status(400).json({ error: 'Invalid student ID' });
+  }
+  // Cache key is per assignment+student so different groups get their own result.
+  const cacheKey = studentId ? `${assignmentId}_${studentId}` : `${assignmentId}_any`;
+
   // Return cached result if available
-  if (_contributionsCache[assignmentId] !== undefined) {
-    return res.json(_contributionsCache[assignmentId]);
+  if (_contributionsCache[cacheKey] !== undefined) {
+    return res.json(_contributionsCache[cacheKey]);
   }
 
   try {
     const client = getClient(req);
 
-    // Find the first DOCX attachment for this assignment's group submissions
-    const attachment = await client.getGroupSubmissionDocx(assignmentId);
+    // Find the DOCX attachment — use the student's own submission when possible
+    // so multi-group assignments always return the correct document.
+    const attachment = await client.getGroupSubmissionDocx(assignmentId, studentId);
     if (!attachment) {
       const result = { contributions: null };
-      _contributionsCache[assignmentId] = result;
+      _contributionsCache[cacheKey] = result;
       return res.json(result);
     }
 
@@ -570,7 +581,7 @@ router.get('/doc-contributions/:assignmentId', async (req, res) => {
     const entries = await parseVersiegeschiedenis(buffer);
     if (!entries || entries.length === 0) {
       const result = { contributions: null };
-      _contributionsCache[assignmentId] = result;
+      _contributionsCache[cacheKey] = result;
       return res.json(result);
     }
 
@@ -580,7 +591,7 @@ router.get('/doc-contributions/:assignmentId', async (req, res) => {
     const contributions = computeContributions(entries, studentNames);
 
     const result = { contributions };
-    _contributionsCache[assignmentId] = result;
+    _contributionsCache[cacheKey] = result;
     return res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
